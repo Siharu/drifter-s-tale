@@ -10,10 +10,17 @@
     "dev": "tsc --watch",
     "type-check": "tsc --noEmit"
   },
-  "keywords": ["another-sky", "investigation", "survival", "procedural", "isometric"],
+  "keywords": [
+    "another-sky",
+    "investigation",
+    "survival",
+    "procedural",
+    "isometric"
+  ],
   "author": "Siharu",
   "license": "MIT",
   "devDependencies": {
+    "@types/three": "^0.160.0",
     "typescript": "^5.3.0"
   },
   "dependencies": {
