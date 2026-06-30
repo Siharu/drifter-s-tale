@@ -180,6 +180,12 @@ export interface Building {
   svgMesh: unknown; // THREE.Mesh, but avoid Three.js in types
   decayState: number; // 0–1
   exploredState: number; // 0–1
+  seed: number; // deterministic per-building seed, derived from the zone's
+                // RNG at generation time — NOT from `id` (id uses
+                // Date.now()+Math.random() for uniqueness and is therefore
+                // non-deterministic; visual generation must use this field
+                // instead so the same WorldGenerator seed always produces
+                // the same building facade)
 }
 
 // ─── ROOM ───

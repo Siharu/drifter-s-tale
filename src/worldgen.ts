@@ -19,6 +19,7 @@ import {
   WeatherType,
   HazardType,
   InteractableType,
+  WrongnessState,
   type ZoneID,
   type BuildingID,
   type RoomID,
@@ -142,6 +143,15 @@ export class WorldGenerator {
       fogIntensity: valueNoise2D(position.x, position.y, zoneSeed) * 0.8,
       decayLevel: this.calculateDecayLevel(zoneType, this.options.difficulty),
 
+      // TEMP: placeholder assignment until the curated region/wrongness
+      // ordering (the Finland -> Nepal-style progression discussed for
+      // SkySystem's WrongnessState) gets designed. For now this just
+      // satisfies the Zone interface so WorldGenerator compiles and runs —
+      // every zone gets a random WrongnessState and a generic region label.
+      // Replace this block once the real curated assignment logic exists.
+      wrongnessState: zoneRng.pick(Object.values(WrongnessState)),
+      region: `Region-${zoneID.slice(0, 8)}`,
+
       buildings,
       hazards,
       storyHooks,
@@ -158,6 +168,11 @@ export class WorldGenerator {
    */
   private generateBuilding(position: Vector2, rng: SeededRandom): Building {
     const buildingID = ID.create<BuildingID>('building');
+    const buildingSeed = rng.nextInt(0, 1_000_000); // deterministic — drawn
+      // from this zone's RNG stream, unlike buildingID (which uses
+      // Date.now()+Math.random() for uniqueness and is NOT reproducible
+      // across runs). SVGBuildingFactory must seed its facade RNG from
+      // this field, not from hashing buildingID.
     const buildingType = this.selectBuildingType(rng);
 
     const roomCount = rng.nextInt(4, 8);
@@ -210,6 +225,7 @@ export class WorldGenerator {
 
       decayState: rng.nextFloat(0, 1),
       exploredState: 0,
+      seed: buildingSeed,
     };
 
     return building;

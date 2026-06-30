@@ -63,9 +63,20 @@ export class PixelPipeline {
   /**
    * Step 1: render the real scene at low internal resolution into the
    * offscreen target. Call this with the game's actual scene/camera.
+   *
+   * Explicitly resets the viewport/scissor to the target's own
+   * internalWidth/Height before rendering. This is required because
+   * Three.js's renderer.setRenderTarget() does NOT reset the viewport —
+   * it's independent state. blitToScreen() sets a custom (often
+   * letterboxed) viewport for the final canvas-sized blit; without this
+   * reset, the next frame's render-to-target call would inherit that
+   * stale viewport and render the scene cropped/zoomed into a corner of
+   * the low-res buffer instead of filling it correctly.
    */
   renderScene(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera): void {
     renderer.setRenderTarget(this.renderTarget);
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, this.internalWidth, this.internalHeight);
     renderer.render(scene, camera);
     renderer.setRenderTarget(null);
   }

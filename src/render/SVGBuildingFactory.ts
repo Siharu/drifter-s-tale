@@ -30,14 +30,6 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-function hashString(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) {
-    h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
-  }
-  return h >>> 0;
-}
-
 // ─── Per-BuildingType facade rules ───
 interface FacadeRules {
   wallBase: string;       // base wall color
@@ -90,7 +82,13 @@ export class SVGBuildingFactory {
    */
   build(building: Building): BuildingDiorama {
     const rules = FACADE_RULES[building.type];
-    const seed = hashString(building.id as unknown as string);
+    // Use the deterministic per-building seed assigned by WorldGenerator
+    // (drawn from the zone's RNG stream), NOT building.id — id is
+    // generated via Date.now()+Math.random() purely for uniqueness as a
+    // Map key, and is NOT reproducible across runs with the same world
+    // seed. Seeding facade generation from it would silently break the
+    // "same seed -> same world" guarantee the whole pipeline depends on.
+    const seed = building.seed;
     const rng = mulberry32(seed);
 
     const width = Math.max(2, building.size.width);
