@@ -26,6 +26,7 @@ import { PixelPipeline, type PixelPipelineOptions } from './PixelPipeline.js';
 import { LightingController, type LightingControllerOptions } from './LightingController.js';
 import { GodRayLayer, type GodRayLayerOptions } from './GodRayLayer.js';
 import { DustParticles, type DustParticlesOptions } from './DustParticles.js';
+import { AtmosphereController } from './AtmosphereController.js';
 import type { SkySystem } from './SkySystem.js';
 
 const ISO_YAW_DEG = 45;
@@ -48,6 +49,7 @@ export interface IsometricRendererOptions {
   dustParticles?: DustParticlesOptions;
   enableGodRays?: boolean;       // default true — set false to skip the extra passes entirely (e.g. low-end fallback)
   enableDustParticles?: boolean; // default true
+  enableAtmosphere?: boolean;    // default true — set false to skip the CSS overlay layer (e.g. it requires a DOM parent element, unavailable in some test harnesses)
 }
 
 export class IsometricRenderer {
@@ -58,6 +60,7 @@ export class IsometricRenderer {
   readonly lightingController: LightingController;
   readonly godRayLayer: GodRayLayer;
   readonly dustParticles: DustParticles;
+  readonly atmosphereController: AtmosphereController | null;
 
   private canvas: HTMLCanvasElement;
   private viewSize: number;
@@ -68,6 +71,7 @@ export class IsometricRenderer {
   private attachedSky: SkySystem | null = null;
   private godRaysEnabled: boolean;
   private dustEnabled: boolean;
+  private decayLevel: number = 0; // settable via setDecayLevel() — Zone-level decay, not derivable from SkySystem alone since it's a world-content concern, not a sky-bake input
 
   constructor(options: IsometricRendererOptions) {
     this.canvas = options.canvas;
@@ -103,6 +107,14 @@ export class IsometricRenderer {
     // hideDuringOcclusion() doc comment for the full reasoning.
     GodRayLayer.hideDuringOcclusion(this.dustParticles.getObject3D());
     this.dustParticles.addToScene(this.scene);
+
+    if ((options.enableAtmosphere ?? true) && this.canvas.parentElement) {
+      this.atmosphereController = new AtmosphereController(this.canvas.parentElement);
+    } else {
+      this.atmosphereController = null; // either disabled, or canvas isn't attached to a parent yet —
+                                         // caller can construct one manually later if needed since the
+                                         // class is exported standalone
+    }
 
     // Minimal default lighting so geometry is visible before a SkySystem
     // is attached; attachSky() replaces these colors/intensities.
@@ -221,6 +233,24 @@ export class IsometricRenderer {
     }
 
     this.renderer.setClearColor(sky.fogColor);
+
+    if (this.atmosphereController) {
+      this.atmosphereController.update(
+        {
+          wrongnessState: sky.wrongnessState,
+          weatherState: sky.weatherState,
+          obsediaRainActive: sky.obsediaRain.active,
+          obsediaRainIntensity: sky.obsediaRain.intensity,
+          decayLevel: this.decayLevel,
+        },
+        deltaTime
+      );
+    }
+  }
+
+  /** Set the current zone's decayLevel (0–1) — drives AtmosphereController's vignette strength. Call on zone change/load; not derived automatically since it's Zone/world-content state, not part of SkySystem's bake inputs. */
+  setDecayLevel(value: number): void {
+    this.decayLevel = THREE.MathUtils.clamp(value, 0, 1);
   }
 
   /**
@@ -286,6 +316,7 @@ export class IsometricRenderer {
     this.lightingController.dispose();
     this.godRayLayer.dispose();
     this.dustParticles.dispose();
+    this.atmosphereController?.dispose();
     this.renderer.dispose();
     if (this.skyDome) {
       this.skyDome.geometry.dispose();
