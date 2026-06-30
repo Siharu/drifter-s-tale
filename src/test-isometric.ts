@@ -106,7 +106,7 @@ function animate(now: number): void {
   const dt = (now - last) / 1000;
   last = now;
   sky.update(dt); // keeps STATIC glitch / star twinkle alive even with no slider input
-  isoRenderer.syncSky();
+  isoRenderer.syncSky(dt); // dt drives DustParticles' drift animation
   isoRenderer.render();
 }
 requestAnimationFrame(animate);

@@ -25,6 +25,7 @@ import * as THREE from 'three';
 import { PixelPipeline, type PixelPipelineOptions } from './PixelPipeline.js';
 import { LightingController, type LightingControllerOptions } from './LightingController.js';
 import { GodRayLayer, type GodRayLayerOptions } from './GodRayLayer.js';
+import { DustParticles, type DustParticlesOptions } from './DustParticles.js';
 import type { SkySystem } from './SkySystem.js';
 
 const ISO_YAW_DEG = 45;
@@ -44,7 +45,9 @@ export interface IsometricRendererOptions {
   pixelPipeline?: PixelPipelineOptions;
   lighting?: LightingControllerOptions;
   godRays?: GodRayLayerOptions;
+  dustParticles?: DustParticlesOptions;
   enableGodRays?: boolean;       // default true — set false to skip the extra passes entirely (e.g. low-end fallback)
+  enableDustParticles?: boolean; // default true
 }
 
 export class IsometricRenderer {
@@ -54,6 +57,7 @@ export class IsometricRenderer {
   readonly pixelPipeline: PixelPipeline;
   readonly lightingController: LightingController;
   readonly godRayLayer: GodRayLayer;
+  readonly dustParticles: DustParticles;
 
   private canvas: HTMLCanvasElement;
   private viewSize: number;
@@ -63,12 +67,14 @@ export class IsometricRenderer {
   private directionalLight: THREE.DirectionalLight | null = null;
   private attachedSky: SkySystem | null = null;
   private godRaysEnabled: boolean;
+  private dustEnabled: boolean;
 
   constructor(options: IsometricRendererOptions) {
     this.canvas = options.canvas;
     this.viewSize = options.viewSize ?? 10;
     this.cameraDistance = options.cameraDistance ?? 30;
     this.godRaysEnabled = options.enableGodRays ?? true;
+    this.dustEnabled = options.enableDustParticles ?? true;
 
     this.scene = new THREE.Scene();
 
@@ -86,6 +92,17 @@ export class IsometricRenderer {
       height: this.pixelPipeline.internalHeight,
       ...options.godRays,
     });
+    this.dustParticles = new DustParticles({
+      bounds: this.viewSize * 1.5,
+      ...options.dustParticles,
+    });
+    // DustParticles is THREE.Points, not Mesh — GodRayLayer's material-swap
+    // occlusion pass only touches Mesh objects already, but its additive
+    // shader would still render straight into the occlusion mask as noise
+    // unless explicitly hidden for that one pass. See GodRayLayer's
+    // hideDuringOcclusion() doc comment for the full reasoning.
+    GodRayLayer.hideDuringOcclusion(this.dustParticles.getObject3D());
+    this.dustParticles.addToScene(this.scene);
 
     // Minimal default lighting so geometry is visible before a SkySystem
     // is attached; attachSky() replaces these colors/intensities.
@@ -162,8 +179,13 @@ export class IsometricRenderer {
     this.syncSky();
   }
 
-  /** Call each frame after sky.update() to push the latest bake into the renderer. */
-  syncSky(): void {
+  /**
+   * Call each frame after sky.update() to push the latest bake into the
+   * renderer. deltaTime drives DustParticles' drift animation — pass 0 if
+   * called outside a normal per-frame loop (e.g. a one-off debug refresh);
+   * dust simply won't visibly drift that frame, nothing else breaks.
+   */
+  syncSky(deltaTime: number = 0): void {
     if (!this.attachedSky) return;
     const sky = this.attachedSky;
 
@@ -189,6 +211,9 @@ export class IsometricRenderer {
       const isNight = fresh.intensity < 0.5;
       this.lightingController.update(elevation01, isNight);
       this.godRayLayer.setRayColor(this.directionalLight.color);
+      if (this.dustEnabled) {
+        this.dustParticles.update(deltaTime, this.directionalLight.position, this.directionalLight.color, sky.getFogIntensity());
+      }
     }
 
     if (this.scene.fog instanceof THREE.Fog) {
@@ -229,6 +254,12 @@ export class IsometricRenderer {
     this.godRaysEnabled = enabled;
   }
 
+  /** Toggle dust motes at runtime (e.g. disable indoors via Zone/Room type, or during Obsedia Rain where falling streaks replace ambient dust). */
+  setDustParticlesEnabled(enabled: boolean): void {
+    this.dustEnabled = enabled;
+    this.dustParticles.getObject3D().visible = enabled;
+  }
+
   /** Call on window resize / canvas size change. */
   handleResize(): void {
     const width = this.canvas.clientWidth || this.canvas.width || 1;
@@ -254,6 +285,7 @@ export class IsometricRenderer {
     this.pixelPipeline.dispose();
     this.lightingController.dispose();
     this.godRayLayer.dispose();
+    this.dustParticles.dispose();
     this.renderer.dispose();
     if (this.skyDome) {
       this.skyDome.geometry.dispose();

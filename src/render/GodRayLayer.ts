@@ -91,6 +91,11 @@ export class GodRayLayer {
   private occlusionTarget: THREE.WebGLRenderTarget;
   private occlusionOverrideMaterial: THREE.MeshBasicMaterial; // forces silhouettes black, used as scene.overrideMaterial
   private skyOcclusionExemptTag = 'godrayOcclusionExempt'; // userData flag — sky dome / emissive elements skip the override
+  private occlusionHideTag = 'godrayHideDuringOcclusion'; // userData flag — non-Mesh additive effects (DustParticles' THREE.Points,
+                                                            // sprites, etc.) get temporarily hidden rather than material-swapped,
+                                                            // since the override-material approach only applies to Mesh objects
+                                                            // and additive Points would otherwise render straight into the
+                                                            // occlusion mask as noise instead of being properly excluded
 
   private compositeTarget: THREE.WebGLRenderTarget;
   private compositeScene: THREE.Scene;
@@ -153,6 +158,16 @@ export class GodRayLayer {
     mesh.userData.godrayOcclusionExempt = true;
   }
 
+  /**
+   * Tag a non-Mesh additive effect (DustParticles' THREE.Points, future
+   * sprite-based effects, etc.) to be temporarily hidden during the
+   * occlusion pass rather than material-swapped — see occlusionHideTag
+   * above for why Points need different handling than Mesh silhouettes.
+   */
+  static hideDuringOcclusion(object: THREE.Object3D): void {
+    object.userData.godrayHideDuringOcclusion = true;
+  }
+
   /** Update the ray tint to match the current sun/moon glow color from SkySystem, for cohesion with the sky bake. */
   setRayColor(color: THREE.Color): void {
     (this.compositeMaterial.uniforms.rayColor.value as THREE.Color).copy(color);
@@ -167,8 +182,16 @@ export class GodRayLayer {
    */
   renderOcclusion(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera): void {
     const swapped: { mesh: THREE.Mesh; original: THREE.Material | THREE.Material[] }[] = [];
+    const hidden: THREE.Object3D[] = [];
 
     scene.traverse((obj) => {
+      if (obj.userData[this.occlusionHideTag]) {
+        if (obj.visible) {
+          obj.visible = false;
+          hidden.push(obj);
+        }
+        return;
+      }
       const mesh = obj as THREE.Mesh;
       if (!mesh.isMesh) return;
       if (mesh.userData[this.skyOcclusionExemptTag]) return; // left as-is — renders bright
@@ -185,6 +208,9 @@ export class GodRayLayer {
 
     for (const { mesh, original } of swapped) {
       mesh.material = original;
+    }
+    for (const obj of hidden) {
+      obj.visible = true;
     }
   }
 

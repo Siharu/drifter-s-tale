@@ -409,6 +409,11 @@ export class SkySystem {
     return this.texture;
   }
 
+  /** Current fog/haze intensity (0–1) — exposed so other render systems (e.g. DustParticles via IsometricRenderer) can read it without duplicating the state SkySystem already tracks. */
+  getFogIntensity(): number {
+    return this._lastFogIntensity;
+  }
+
   private computeSky(): ComputedSky {
     const hour = ((this.timeOfDay % 24) + 24) % 24;
     const kf = getKeyframe(hour);
