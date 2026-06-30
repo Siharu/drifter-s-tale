@@ -1,13 +1,18 @@
 /**
  * IsometricRenderer
  * Owns the fixed-pitch, non-rotating orthographic isometric camera and the
- * main game scene. Delegates actual resolution/upscale handling to
- * PixelPipeline (kept separate per DRIFTER_ENGINE_PLAN.md's class list).
+ * main game scene. Delegates resolution/upscale to PixelPipeline, shadow
+ * setup to LightingController, and crepuscular rays to GodRayLayer (kept
+ * separate per DRIFTER_ENGINE_PLAN.md's class list / rendering deep-dive
+ * build order 2.1–2.8) — this class wires them together rather than
+ * reimplementing any of their concerns inline.
  *
- * Scope (step 2.2 / milestone M2 only): empty isometric scene + sky wired
- * in via SkySystem, rendering at the correct dusk/atmosphere look. No
- * player, tiles, or buildings yet — those come once this is confirmed
- * visually solid (the "does it feel like Another Sky" checkpoint).
+ * v2 — integrates step 2.4 (LightingController) and 2.5 (GodRayLayer) on
+ * top of the v1 M2 scope (empty scene + sky). Both are attached
+ * automatically inside attachSky() since they depend on the same
+ * directional light SkySystem produces; nothing else changes about how a
+ * caller uses this class versus v1 — attachSky()/syncSky()/render() still
+ * the only required calls.
  *
  * Camera: classic 2:1 "game isometric" — 45° yaw, ~35.264° pitch (true
  * isometric, matches Octopath/HD-2D convention) rather than an actual 45°
@@ -18,16 +23,28 @@
 
 import * as THREE from 'three';
 import { PixelPipeline, type PixelPipelineOptions } from './PixelPipeline.js';
+import { LightingController, type LightingControllerOptions } from './LightingController.js';
+import { GodRayLayer, type GodRayLayerOptions } from './GodRayLayer.js';
 import type { SkySystem } from './SkySystem.js';
 
 const ISO_YAW_DEG = 45;
 const ISO_PITCH_DEG = 35.264; // true isometric angle (atan(1/sqrt(2)))
+
+// Light position Y range produced by SkySystem.getDirectionalLight() —
+// y = (1 - sunY) * 15 + 2, so this spans roughly [2, 17]. Used to derive a
+// 0..1 elevation for LightingController.update() without SkySystem needing
+// to expose elevation as its own field.
+const LIGHT_Y_MIN = 2;
+const LIGHT_Y_MAX = 17;
 
 export interface IsometricRendererOptions {
   canvas: HTMLCanvasElement;
   viewSize?: number;             // world units visible vertically, default 10
   cameraDistance?: number;       // default 30 (just needs to clear the scene)
   pixelPipeline?: PixelPipelineOptions;
+  lighting?: LightingControllerOptions;
+  godRays?: GodRayLayerOptions;
+  enableGodRays?: boolean;       // default true — set false to skip the extra passes entirely (e.g. low-end fallback)
 }
 
 export class IsometricRenderer {
@@ -35,6 +52,8 @@ export class IsometricRenderer {
   readonly camera: THREE.OrthographicCamera;
   readonly renderer: THREE.WebGLRenderer;
   readonly pixelPipeline: PixelPipeline;
+  readonly lightingController: LightingController;
+  readonly godRayLayer: GodRayLayer;
 
   private canvas: HTMLCanvasElement;
   private viewSize: number;
@@ -43,11 +62,13 @@ export class IsometricRenderer {
   private ambientLight: THREE.AmbientLight;
   private directionalLight: THREE.DirectionalLight | null = null;
   private attachedSky: SkySystem | null = null;
+  private godRaysEnabled: boolean;
 
   constructor(options: IsometricRendererOptions) {
     this.canvas = options.canvas;
     this.viewSize = options.viewSize ?? 10;
     this.cameraDistance = options.cameraDistance ?? 30;
+    this.godRaysEnabled = options.enableGodRays ?? true;
 
     this.scene = new THREE.Scene();
 
@@ -59,6 +80,12 @@ export class IsometricRenderer {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     this.pixelPipeline = new PixelPipeline(options.pixelPipeline);
+    this.lightingController = new LightingController(this.renderer, options.lighting);
+    this.godRayLayer = new GodRayLayer({
+      width: this.pixelPipeline.internalWidth,
+      height: this.pixelPipeline.internalHeight,
+      ...options.godRays,
+    });
 
     // Minimal default lighting so geometry is visible before a SkySystem
     // is attached; attachSky() replaces these colors/intensities.
@@ -90,6 +117,10 @@ export class IsometricRenderer {
   /**
    * Wires a SkySystem in as the single source of truth for ambient/fog
    * color and the background dome, per the locked architecture decision.
+   * Also attaches LightingController (shadow casting on the key light) and
+   * exempts the sky dome from GodRayLayer's occlusion pass — without that
+   * exemption the dome would block its own light source at the source,
+   * defeating the ray effect entirely.
    * Call once after both are constructed, then call syncSky() each frame
    * (or whenever the sky bakes a new texture/light state) to keep them
    * in sync — SkySystem.update() must be called separately beforehand.
@@ -116,11 +147,14 @@ export class IsometricRenderer {
       this.skyDome.position.set(0, this.viewSize * 0.5, -this.viewSize * 4);
       this.skyDome.lookAt(this.camera.position);
       this.scene.add(this.skyDome);
+      GodRayLayer.exemptFromOcclusion(this.skyDome);
     }
 
     if (!this.directionalLight) {
       this.directionalLight = sky.getDirectionalLight();
       this.scene.add(this.directionalLight);
+      this.lightingController.attach(this.scene, this.directionalLight, this.camera);
+      this.lightingController.fitToScene(this.viewSize * 1.5);
     }
 
     this.scene.fog = new THREE.Fog(sky.fogColor.getHex(), this.cameraDistance * 0.6, this.cameraDistance * 2.2);
@@ -140,6 +174,21 @@ export class IsometricRenderer {
       this.directionalLight.color.copy(fresh.color);
       this.directionalLight.intensity = fresh.intensity;
       this.directionalLight.position.copy(fresh.position);
+
+      // Derive a 0..1 elevation from the light's Y position (see
+      // LIGHT_Y_MIN/MAX above) and feed LightingController so shadow
+      // length/softness tracks dawn/dusk vs noon automatically.
+      const elevation01 = THREE.MathUtils.clamp(
+        (this.directionalLight.position.y - LIGHT_Y_MIN) / (LIGHT_Y_MAX - LIGHT_Y_MIN),
+        0,
+        1
+      );
+      // SkySystem sets intensity 0.35 at night vs 1.0 in daylight (see
+      // getDirectionalLight()) — reuse that threshold rather than adding
+      // a second isNight channel SkySystem would need to expose separately.
+      const isNight = fresh.intensity < 0.5;
+      this.lightingController.update(elevation01, isNight);
+      this.godRayLayer.setRayColor(this.directionalLight.color);
     }
 
     if (this.scene.fog instanceof THREE.Fog) {
@@ -149,10 +198,35 @@ export class IsometricRenderer {
     this.renderer.setClearColor(sky.fogColor);
   }
 
-  /** Renders the scene through PixelPipeline (low-res bake -> nearest blit). */
+  /**
+   * Renders the scene through PixelPipeline (low-res bake), then — if god
+   * rays are enabled and a sky/light is attached — runs GodRayLayer's
+   * occlusion + radial-blur passes and blits ITS composited output instead
+   * of the raw scene texture. Falls back to the plain PixelPipeline blit
+   * when god rays are disabled or no directional light exists yet (e.g.
+   * attachSky() hasn't been called), so this is always safe to call.
+   */
   render(): void {
     this.pixelPipeline.renderScene(this.renderer, this.scene, this.camera);
-    this.pixelPipeline.blitToScreen(this.renderer, this.canvas.clientWidth, this.canvas.clientHeight);
+
+    if (this.godRaysEnabled && this.directionalLight) {
+      const lightScreenPos = GodRayLayer.worldToScreen01(this.directionalLight.position, this.camera);
+      this.godRayLayer.renderOcclusion(this.renderer, this.scene, this.camera);
+      this.godRayLayer.composite(this.renderer, this.pixelPipeline.getRenderTarget().texture, lightScreenPos);
+      this.pixelPipeline.blitTextureToScreen(
+        this.renderer,
+        this.godRayLayer.getOutputTexture(),
+        this.canvas.clientWidth,
+        this.canvas.clientHeight
+      );
+    } else {
+      this.pixelPipeline.blitToScreen(this.renderer, this.canvas.clientWidth, this.canvas.clientHeight);
+    }
+  }
+
+  /** Toggle god rays at runtime (e.g. quality settings, or auto-disable during HUSK_NEST combat for clarity). */
+  setGodRaysEnabled(enabled: boolean): void {
+    this.godRaysEnabled = enabled;
   }
 
   /** Call on window resize / canvas size change. */
@@ -170,10 +244,16 @@ export class IsometricRenderer {
     this.camera.updateProjectionMatrix();
 
     this.renderer.setSize(width, height, false);
+    // Internal/offscreen target resolutions (PixelPipeline, GodRayLayer)
+    // deliberately do NOT change on resize — only the final blit scale
+    // does. Resizing the internal res would defeat the fixed pixel-grid
+    // look the whole pipeline exists to produce.
   }
 
   dispose(): void {
     this.pixelPipeline.dispose();
+    this.lightingController.dispose();
+    this.godRayLayer.dispose();
     this.renderer.dispose();
     if (this.skyDome) {
       this.skyDome.geometry.dispose();

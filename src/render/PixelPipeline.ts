@@ -10,6 +10,11 @@
  * structure in DRIFTER_ENGINE_PLAN.md) — IsometricRenderer owns the
  * camera/scene, PixelPipeline only owns the resolution/blit concern, so
  * either can be swapped independently later (e.g. dynamic res scaling).
+ *
+ * v2 — added blitTextureToScreen() so GodRayLayer's post-composited output
+ * (scene + crepuscular rays, same internal resolution) can reuse the exact
+ * same letterboxed nearest-neighbor blit path as the raw scene render,
+ * instead of duplicating that math in a second place.
  */
 
 import * as THREE from 'three';
@@ -88,6 +93,23 @@ export class PixelPipeline {
    * a fixed pixelScale was passed in the constructor.
    */
   blitToScreen(renderer: THREE.WebGLRenderer, canvasWidth: number, canvasHeight: number): void {
+    this.blitTextureToScreen(renderer, this.renderTarget.texture, canvasWidth, canvasHeight);
+  }
+
+  /**
+   * Same letterboxed nearest-neighbor upscale as blitToScreen(), but for
+   * an arbitrary externally-supplied texture instead of this pipeline's
+   * own render target. Used by GodRayLayer to blit its post-composited
+   * (scene + rays) output through the identical pixel-perfect path —
+   * without this, god rays would need their own separate blit/letterbox
+   * logic that could drift out of sync with this one over time.
+   */
+  blitTextureToScreen(
+    renderer: THREE.WebGLRenderer,
+    texture: THREE.Texture,
+    canvasWidth: number,
+    canvasHeight: number
+  ): void {
     const scale = this.fixedPixelScale ?? Math.max(
       1,
       Math.floor(Math.min(canvasWidth / this.internalWidth, canvasHeight / this.internalHeight))
@@ -98,6 +120,9 @@ export class PixelPipeline {
     const offsetX = Math.floor((canvasWidth - drawWidth) / 2);
     const offsetY = Math.floor((canvasHeight - drawHeight) / 2);
 
+    const prevMap = this.blitMaterial.map;
+    this.blitMaterial.map = texture;
+
     renderer.setRenderTarget(null);
     renderer.setScissorTest(true);
     renderer.setScissor(offsetX, offsetY, drawWidth, drawHeight);
@@ -105,6 +130,8 @@ export class PixelPipeline {
     renderer.render(this.blitScene, this.blitCamera);
     renderer.setScissorTest(false);
     renderer.setViewport(0, 0, canvasWidth, canvasHeight);
+
+    this.blitMaterial.map = prevMap; // restore — blitToScreen() relies on this staying its own texture
   }
 
   dispose(): void {
