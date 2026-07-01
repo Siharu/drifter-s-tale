@@ -115,7 +115,39 @@ export enum RunStatus {
   SUCCESS = 'SUCCESS',
   DEATH = 'DEATH',
 }
+// ─── THREAT TYPES ───
+export enum HuskType {
+  SKOTH = 'SKOTH',
+  GLOWBUBS = 'GLOWBUBS',
+  JAWIES = 'JAWIES',
+  WHITES = 'WHITES',
+  OLDBONES = 'OLDBONES',
+  DISABLED = 'DISABLED',
+  NOIRE = 'NOIRE',
+  BLOATERS = 'BLOATERS',
+  AQUATIC = 'AQUATIC',
+}
 
+export enum InfectedType {
+  THEY_THINK = 'THEY_THINK',
+  THEY_TALK = 'THEY_TALK',
+  THEY_TRICK = 'THEY_TRICK',
+  THEY_TAKE = 'THEY_TAKE',
+  GLITCH = 'GLITCH',
+}
+
+export enum GhuulType {
+  APEX = 'APEX',
+}
+
+export enum DetectionMethod {
+  SIGHT = 'SIGHT',
+  SOUND = 'SOUND',
+  VIBRATION = 'VIBRATION',
+  SMELL = 'SMELL',
+  BEHAVIOR = 'BEHAVIOR',
+  UNKNOWN = 'UNKNOWN',
+}
 // ─── VECTORS ───
 export interface Vector2 {
   x: number;
