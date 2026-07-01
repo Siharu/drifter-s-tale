@@ -1,7 +1,10 @@
-import type { Zone } from '../types.js';
+import type { Zone, Vector2 } from '../types.js';
 import { WrongnessState } from '../types.js';
+import * as THREE from 'three';
 import { WorldGenerator } from '../worldgen.js';
 import { GameplayEngine } from '../gameplay/index.js';
+import { IsometricRenderer } from '../render/IsometricRenderer.js';
+import { SkySystem } from '../render/SkySystem.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -522,6 +525,16 @@ function createNoiseCanvas(opacity: number): HTMLCanvasElement {
   return canvas;
 }
 
+interface PlaySession {
+  canvas: HTMLCanvasElement;
+  renderer: IsometricRenderer;
+  sky: SkySystem;
+  drifterMesh: THREE.Mesh;
+  animationFrame: number | null;
+  lastTimestamp: number;
+  cleanup: () => void;
+}
+
 // ─── HomeScreen class ─────────────────────────────────────────────────────────
 
 class HomeScreen {
@@ -533,6 +546,9 @@ class HomeScreen {
   private backgroundFolder: MenuBackgroundFolder;
   private statusMessage = 'Relay node connection established. Standing by.';
   private menuIndex = 0;
+  private playSession: PlaySession | null = null;
+  private inputVector: Vector2 = { x: 0, y: 0 };
+  private readonly heldKeys = new Set<string>();
 
   // Wrongness for menu is always GREY (6 months post-collapse, first zone is Finland)
   // Can be overridden if a zone is active
@@ -627,10 +643,78 @@ class HomeScreen {
         layout.appendChild(overlay);
         break;
       }
+      case 'play': {
+        const playSurface = el('div', {
+          position: 'absolute',
+          inset: '0',
+          zIndex: '2',
+          pointerEvents: 'none',
+        });
+
+        const canvasWrap = el('div', {
+          position: 'absolute',
+          inset: '0',
+          zIndex: '0',
+          pointerEvents: 'none',
+        });
+        if (this.playSession) {
+          this.playSession.canvas.style.width = '100%';
+          this.playSession.canvas.style.height = '100%';
+          this.playSession.canvas.style.display = 'block';
+          this.playSession.canvas.style.objectFit = 'cover';
+          this.playSession.canvas.style.pointerEvents = 'none';
+          canvasWrap.appendChild(this.playSession.canvas);
+        }
+        playSurface.appendChild(canvasWrap);
+
+        const hud = el('div', {
+          position: 'absolute',
+          left: '24px',
+          top: '24px',
+          right: '24px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+          gap: '16px',
+          zIndex: '3',
+          pointerEvents: 'none',
+        });
+
+        const missionPanel = el('div', {
+          maxWidth: '420px',
+          padding: '14px 16px',
+          background: 'rgba(4, 8, 15, 0.64)',
+          border: '1px solid rgba(255,255,255,0.12)',
+          backdropFilter: 'blur(8px)',
+        });
+        missionPanel.innerHTML = `
+          <div style="font-family:'Share Tech Mono',monospace;font-size:0.64rem;letter-spacing:0.22em;text-transform:uppercase;color:var(--text-secondary);margin-bottom:8px;">RUN STATUS</div>
+          <div style="font-family:'Rajdhani',system-ui,sans-serif;font-size:1rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-primary);margin-bottom:4px;">${this.currentZone?.name ?? 'RELAY ZONE'}</div>
+          <div style="font-family:'Share Tech Mono',monospace;font-size:0.72rem;letter-spacing:0.16em;text-transform:uppercase;color:var(--text-secondary);">WASD / ARROWS · MOVE · ${this.engine ? Math.round(this.engine.drifter.signalStrength) : 0}% SIGNAL</div>
+        `;
+        hud.appendChild(missionPanel);
+
+        const controlsPanel = el('div', {
+          padding: '14px 16px',
+          background: 'rgba(4, 8, 15, 0.64)',
+          border: '1px solid rgba(255,255,255,0.12)',
+          backdropFilter: 'blur(8px)',
+          fontFamily: "'Share Tech Mono', monospace",
+          fontSize: '0.7rem',
+          letterSpacing: '0.16em',
+          textTransform: 'uppercase',
+          color: 'var(--text-secondary)',
+        });
+        controlsPanel.textContent = 'LIVE SCENE · THREE.JS RENDERER ACTIVE';
+        hud.appendChild(controlsPanel);
+
+        playSurface.appendChild(hud);
+        layout.appendChild(playSurface);
+        break;
+      }
       case 'story':
       case 'exploration':
-      case 'settings':
-      case 'play': {
+      case 'settings': {
         // Left pane — title + flavor text, mostly transparent
         const leftPane = el('div', {
           flex: '1',
@@ -663,8 +747,6 @@ class HomeScreen {
           rightPane.appendChild(this.renderExplorationPanel());
         } else if (mode === 'settings') {
           rightPane.appendChild(this.renderSettingsPanel());
-        } else if (mode === 'play') {
-          rightPane.appendChild(this.renderRunPanel());
         }
 
         // Bottom status bar
@@ -735,6 +817,152 @@ class HomeScreen {
     bg.appendChild(vignetteBottom);
 
     return bg;
+  }
+
+  private createPlaySession(): void {
+    this.disposePlaySession();
+
+    const canvas = document.createElement('canvas');
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+    canvas.style.display = 'block';
+    canvas.style.imageRendering = 'pixelated';
+
+    const renderer = new IsometricRenderer({
+      canvas,
+      viewSize: 14,
+      cameraDistance: 30,
+      pixelPipeline: { internalWidth: 384, internalHeight: 216 },
+    });
+
+    const sky = new SkySystem({ textureWidth: 512, textureHeight: 512, zoneSeed: this.currentZone?.seed ?? 4242 });
+    sky.init();
+    renderer.attachSky(sky);
+
+    const zone = this.currentZone;
+    if (zone) {
+      sky.update(0, {
+        timeOfDay: zone.timeOfDay,
+        weatherState: zone.weatherState,
+        fogIntensity: zone.fogIntensity,
+        wrongnessState: zone.wrongnessState,
+        zoneSeed: zone.seed,
+      });
+      renderer.syncSky();
+    }
+
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(24, 24, 24, 24),
+      new THREE.MeshStandardMaterial({ color: 0x11151d, roughness: 1, metalness: 0.05 })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    renderer.scene.add(ground);
+
+    const grid = new THREE.GridHelper(24, 24, 0x2f3948, 0x161c24);
+    grid.position.y = 0.01;
+    renderer.scene.add(grid);
+
+    const maxDimension = Math.max(zone?.size.width ?? 96, zone?.size.height ?? 96, 24);
+
+    const drifterMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(0.45, 0.9, 0.45),
+      new THREE.MeshStandardMaterial({ color: 0x8fd1ff, emissive: 0x17344d, emissiveIntensity: 0.4 })
+    );
+    drifterMesh.position.set(0, 0.45, 0);
+    renderer.scene.add(drifterMesh);
+
+    for (const building of zone?.buildings ?? []) {
+      const width = Math.max(0.9, (building.size.width / maxDimension) * 4.8);
+      const height = Math.max(0.9, (building.size.height / maxDimension) * 4.8);
+      const mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(width, height, width),
+        new THREE.MeshStandardMaterial({ color: 0x233140, roughness: 0.95, metalness: 0.04 })
+      );
+      const x = (building.position.x / maxDimension) * 12 - 6;
+      const z = (building.position.y / maxDimension) * 12 - 6;
+      mesh.position.set(x, height / 2, z);
+      renderer.scene.add(mesh);
+    }
+
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'w', 'a', 's', 'd'].includes(event.key)) {
+        event.preventDefault();
+      }
+      this.heldKeys.add(event.key.toLowerCase());
+      this.syncInputVector();
+    };
+
+    const onKeyUp = (event: KeyboardEvent): void => {
+      this.heldKeys.delete(event.key.toLowerCase());
+      this.syncInputVector();
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+
+    const animate = (timestamp: number): void => {
+      const session = this.playSession;
+      if (!session) return;
+      const deltaSeconds = Math.min(0.05, (timestamp - session.lastTimestamp) / 1000);
+      session.lastTimestamp = timestamp;
+
+      if (this.engine && this.currentZone) {
+        this.engine.update(deltaSeconds, this.inputVector, []);
+        if (this.engine.drifter.position) {
+          const sceneX = (this.engine.drifter.position.x / maxDimension) * 12 - 6;
+          const sceneZ = (this.engine.drifter.position.y / maxDimension) * 12 - 6;
+          drifterMesh.position.set(sceneX, 0.45, sceneZ);
+        }
+      }
+
+      sky.update(deltaSeconds, {
+        timeOfDay: zone?.timeOfDay ?? 12,
+        weatherState: zone?.weatherState ?? ('' as unknown as import('../types.js').WeatherType),
+        fogIntensity: zone?.fogIntensity ?? 0.2,
+        wrongnessState: zone?.wrongnessState ?? WrongnessState.GREY,
+        zoneSeed: zone?.seed ?? 4242,
+      });
+      renderer.syncSky(deltaSeconds);
+      renderer.render();
+
+      session.animationFrame = window.requestAnimationFrame(animate);
+    };
+
+    this.playSession = {
+      canvas,
+      renderer,
+      sky,
+      drifterMesh,
+      animationFrame: window.requestAnimationFrame(animate),
+      lastTimestamp: performance.now(),
+      cleanup: () => {
+        window.removeEventListener('keydown', onKeyDown);
+        window.removeEventListener('keyup', onKeyUp);
+        if (this.playSession?.animationFrame !== null && this.playSession?.animationFrame !== undefined) {
+          window.cancelAnimationFrame(this.playSession.animationFrame);
+        }
+      },
+    };
+  }
+
+  private disposePlaySession(): void {
+    if (!this.playSession) return;
+    this.playSession.cleanup();
+    this.playSession.renderer.dispose();
+    this.playSession = null;
+  }
+
+  private syncInputVector(): void {
+    let x = 0;
+    let y = 0;
+
+    if (this.heldKeys.has('arrowright') || this.heldKeys.has('d')) x += 1;
+    if (this.heldKeys.has('arrowleft') || this.heldKeys.has('a')) x -= 1;
+    if (this.heldKeys.has('arrowdown') || this.heldKeys.has('s')) y += 1;
+    if (this.heldKeys.has('arrowup') || this.heldKeys.has('w')) y -= 1;
+
+    this.inputVector = { x, y };
   }
 
   // ── Title (left pane, bottom-anchored) ──────────────────────────────────────
@@ -1064,98 +1292,6 @@ class HomeScreen {
     return panel;
   }
 
-  // ── Run/play panel ───────────────────────────────────────────────────────────
-  private renderRunPanel(): HTMLElement {
-    const panel = el('div');
-    panel.className = 'drifter-panel';
-    Object.assign(panel.style, { padding: '20px' });
-
-    const header = el('div', {
-      fontFamily: "'Share Tech Mono', monospace",
-      fontSize: '0.65rem',
-      letterSpacing: '0.2em',
-      color: 'var(--text-secondary)',
-      marginBottom: '14px',
-    });
-    header.textContent = '// ACTIVE RUN';
-    panel.appendChild(header);
-
-    if (!this.engine || !this.currentZone) {
-      const err = el('p', { color: '#ff7070', fontSize: '0.85rem', margin: '0 0 16px' });
-      err.textContent = 'No active run. Return to menu.';
-      panel.appendChild(err);
-      const back = el('button');
-      back.className = 'drifter-btn';
-      back.textContent = 'Return to relay';
-      back.onclick = () => this.setMode('menu');
-      panel.appendChild(back);
-      return panel;
-    }
-
-    const rows: [string, string][] = [
-      ['Drifter', `${this.engine.drifter.name} · ${this.engine.drifter.origin}`],
-      ['Zone', `${this.currentZone.name}`],
-      ['Type', this.currentZone.type],
-      ['Signal', `${Math.round(this.engine.drifter.signalStrength)}%`],
-      ['Air Quality', `${Math.round(this.engine.drifter.airQuality)}%`],
-      ['Difficulty', `Level ${this.settings.difficulty}`],
-    ];
-
-    for (const [label, value] of rows) {
-      const row = el('div');
-      row.className = 'status-row';
-      const l = el('span'); l.className = 'drifter-label'; l.textContent = label;
-      const v = el('span'); v.className = 'drifter-value'; v.textContent = value;
-      row.appendChild(l); row.appendChild(v);
-      panel.appendChild(row);
-    }
-
-    Object.assign(panel.style, { marginBottom: '8px' });
-
-    const actionGrid = el('div', { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginTop: '14px' });
-
-    const advanceBtn = el('button');
-    advanceBtn.className = 'drifter-btn';
-    advanceBtn.textContent = 'Advance time';
-    advanceBtn.onclick = () => {
-      this.engine?.update(1, { x: 0, y: 0 }, []);
-      this.statusMessage = 'Time advanced one unit.';
-      this.render();
-    };
-    actionGrid.appendChild(advanceBtn);
-
-    const sampleBtn = el('button');
-    sampleBtn.className = 'drifter-btn';
-    sampleBtn.textContent = 'Collect sample';
-    sampleBtn.onclick = () => {
-      const item = {
-        id: `sample-${Date.now()}`,
-        name: 'Relay Sample',
-        description: 'A minor world artifact.',
-        iconIndex: 1,
-        isWeapon: false,
-        value: 8,
-        weight: 1,
-        position: { x: this.engine?.drifter.position.x ?? 0, y: this.engine?.drifter.position.y ?? 0 },
-        buildingID: this.currentZone?.buildings?.[0]?.id ?? 'unknown',
-        roomID: null,
-      };
-      this.statusMessage = this.engine?.pickUpItem(item) ? 'Sample logged to logbook.' : 'Inventory full.';
-      this.render();
-    };
-    actionGrid.appendChild(sampleBtn);
-    panel.appendChild(actionGrid);
-
-    const back = el('button');
-    back.className = 'drifter-btn secondary';
-    back.textContent = '← Abort run';
-    back.onclick = () => this.setMode('menu');
-    Object.assign(back.style, { marginTop: '8px' });
-    panel.appendChild(back);
-
-    return panel;
-  }
-
   // ── Status bar (bottom of right pane) ───────────────────────────────────────
   private renderStatusBar(): HTMLElement {
     const bar = el('div');
@@ -1190,6 +1326,7 @@ class HomeScreen {
   private setMode(mode: AppMode): void {
     this.mode = mode;
     if (mode === 'menu') {
+      this.disposePlaySession();
       this.backgroundFolder = this.pickBackground();
       this.statusMessage = 'Relay node connection established. Standing by.';
     }
@@ -1234,6 +1371,7 @@ class HomeScreen {
     });
     this.mode = 'play';
     this.statusMessage = mode === 'story' ? 'Story run initiated. Keep the relay alive.' : 'Exploration run started. Move quietly.';
+    this.createPlaySession();
     this.render();
   }
 }

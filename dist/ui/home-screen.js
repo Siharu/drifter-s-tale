@@ -1,6 +1,9 @@
 import { WrongnessState } from '../types.js';
+import * as THREE from 'three';
 import { WorldGenerator } from '../worldgen.js';
 import { GameplayEngine } from '../gameplay/index.js';
+import { IsometricRenderer } from '../render/IsometricRenderer.js';
+import { SkySystem } from '../render/SkySystem.js';
 // ─── Constants ───────────────────────────────────────────────────────────────
 const MENU_BACKGROUND_FOLDERS = [
     'background 1',
@@ -234,6 +237,103 @@ function injectGlobalStyles() {
       animation: glitch-border 6s infinite;
     }
 
+    .drifter-menu-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding: 28px 32px 40px 40px;
+      width: min(460px, 46vw);
+      max-width: 520px;
+      height: 100%;
+      pointer-events: auto;
+    }
+
+    .drifter-inline-status {
+      display: grid;
+      gap: 10px;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.78rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      white-space: pre;
+    }
+
+    .drifter-inline-status-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 18px;
+      align-items: center;
+    }
+
+    .drifter-menu-item {
+      display: flex;
+      align-items: center;
+      gap: 0.7rem;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.95rem;
+      letter-spacing: 0.24em;
+      text-transform: uppercase;
+      color: var(--text-primary);
+      cursor: pointer;
+      background: transparent;
+      border: none;
+      padding: 6px 0;
+      outline: none;
+      position: relative;
+      width: fit-content;
+      min-width: 100%;
+    }
+
+    .drifter-menu-item::before {
+      content: '';
+      width: 10px;
+      height: 10px;
+      border: 1px solid transparent;
+      border-radius: 2px;
+      transition: border-color 0.18s ease, opacity 0.18s ease;
+      opacity: 0;
+      flex-shrink: 0;
+    }
+
+    .drifter-menu-item.active::before {
+      opacity: 1;
+      border-color: var(--accent-color);
+      box-shadow: 0 0 0 1px rgba(136, 204, 255, 0.22);
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .drifter-menu-item:hover {
+      color: var(--accent-color);
+    }
+
+    .drifter-tagline {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.75rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      max-width: 420px;
+      line-height: 1.6;
+    }
+
+    .drifter-moon {
+      position: absolute;
+      top: 10%;
+      right: 14%;
+      width: 96px;
+      height: 96px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(246,249,255,0.96) 0%, rgba(230,236,247,0.45) 40%, rgba(230,236,247,0.08) 62%, transparent 100%);
+      filter: blur(0.4px);
+      box-shadow: 0 0 32px rgba(240,248,255,0.18);
+      pointer-events: none;
+      opacity: 0.95;
+    }
+
     .drifter-btn {
       display: block;
       width: 100%;
@@ -402,6 +502,10 @@ class HomeScreen {
         this.engine = null;
         this.currentZone = null;
         this.statusMessage = 'Relay node connection established. Standing by.';
+        this.menuIndex = 0;
+        this.playSession = null;
+        this.inputVector = { x: 0, y: 0 };
+        this.heldKeys = new Set();
         // Wrongness for menu is always GREY (6 months post-collapse, first zone is Finland)
         // Can be overridden if a zone is active
         this.wrongnessState = WrongnessState.GREY;
@@ -435,6 +539,7 @@ class HomeScreen {
     render() {
         this.applyThemeVars();
         this.root.innerHTML = '';
+        const mode = this.mode;
         const p = WRONGNESS_PALETTE[this.wrongnessState];
         // ── Scanlines (screen-space, fixed, behind everything else) ─────────────
         const scanlines = el('div');
@@ -457,61 +562,138 @@ class HomeScreen {
         // ── Background ───────────────────────────────────────────────────────────
         this.root.appendChild(this.renderBackground(p.skyFilter));
         // ── Full-bleed split layout ──────────────────────────────────────────────
-        // Left ~55% = world/title space (bleeds into background)
-        // Right ~45% = UI panels (anchored right edge)
         const layout = el('div', {
             position: 'absolute',
             inset: '0',
-            display: 'flex',
-            alignItems: 'stretch',
             zIndex: '10',
             pointerEvents: 'none',
         });
-        // Left pane — title + flavor text, mostly transparent
-        const leftPane = el('div', {
-            flex: '1',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'flex-end',
-            padding: '0 0 40px 48px',
-            pointerEvents: 'none',
-        });
-        leftPane.appendChild(this.renderTitle());
-        layout.appendChild(leftPane);
-        // Right pane — UI panels
-        const rightPane = el('div', {
-            width: 'clamp(320px, 38vw, 480px)',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'center',
-            gap: '12px',
-            padding: '32px 40px 32px 20px',
-            pointerEvents: 'auto',
-        });
-        // Wrongness indicator (top of right pane)
-        rightPane.appendChild(this.renderWrongnessIndicator());
-        // Mode-specific content
-        switch (this.mode) {
-            case 'menu':
-                rightPane.appendChild(this.renderStationStatus());
-                rightPane.appendChild(this.renderMenuNav());
+        switch (mode) {
+            case 'menu': {
+                const overlay = el('div');
+                overlay.className = 'drifter-menu-overlay';
+                overlay.appendChild(this.renderTitle());
+                const bottomBlock = el('div');
+                Object.assign(bottomBlock.style, {
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '22px',
+                    width: '100%',
+                });
+                bottomBlock.appendChild(this.renderStationStatusInline());
+                bottomBlock.appendChild(this.renderMenuNav());
+                bottomBlock.appendChild(this.renderTagline());
+                overlay.appendChild(bottomBlock);
+                layout.appendChild(overlay);
                 break;
+            }
+            case 'play': {
+                const playSurface = el('div', {
+                    position: 'absolute',
+                    inset: '0',
+                    zIndex: '2',
+                    pointerEvents: 'none',
+                });
+                const canvasWrap = el('div', {
+                    position: 'absolute',
+                    inset: '0',
+                    zIndex: '0',
+                    pointerEvents: 'none',
+                });
+                if (this.playSession) {
+                    this.playSession.canvas.style.width = '100%';
+                    this.playSession.canvas.style.height = '100%';
+                    this.playSession.canvas.style.display = 'block';
+                    this.playSession.canvas.style.objectFit = 'cover';
+                    this.playSession.canvas.style.pointerEvents = 'none';
+                    canvasWrap.appendChild(this.playSession.canvas);
+                }
+                playSurface.appendChild(canvasWrap);
+                const hud = el('div', {
+                    position: 'absolute',
+                    left: '24px',
+                    top: '24px',
+                    right: '24px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'flex-start',
+                    gap: '16px',
+                    zIndex: '3',
+                    pointerEvents: 'none',
+                });
+                const missionPanel = el('div', {
+                    maxWidth: '420px',
+                    padding: '14px 16px',
+                    background: 'rgba(4, 8, 15, 0.64)',
+                    border: '1px solid rgba(255,255,255,0.12)',
+                    backdropFilter: 'blur(8px)',
+                });
+                missionPanel.innerHTML = `
+          <div style="font-family:'Share Tech Mono',monospace;font-size:0.64rem;letter-spacing:0.22em;text-transform:uppercase;color:var(--text-secondary);margin-bottom:8px;">RUN STATUS</div>
+          <div style="font-family:'Rajdhani',system-ui,sans-serif;font-size:1rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-primary);margin-bottom:4px;">${this.currentZone?.name ?? 'RELAY ZONE'}</div>
+          <div style="font-family:'Share Tech Mono',monospace;font-size:0.72rem;letter-spacing:0.16em;text-transform:uppercase;color:var(--text-secondary);">WASD / ARROWS · MOVE · ${this.engine ? Math.round(this.engine.drifter.signalStrength) : 0}% SIGNAL</div>
+        `;
+                hud.appendChild(missionPanel);
+                const controlsPanel = el('div', {
+                    padding: '14px 16px',
+                    background: 'rgba(4, 8, 15, 0.64)',
+                    border: '1px solid rgba(255,255,255,0.12)',
+                    backdropFilter: 'blur(8px)',
+                    fontFamily: "'Share Tech Mono', monospace",
+                    fontSize: '0.7rem',
+                    letterSpacing: '0.16em',
+                    textTransform: 'uppercase',
+                    color: 'var(--text-secondary)',
+                });
+                controlsPanel.textContent = 'LIVE SCENE · THREE.JS RENDERER ACTIVE';
+                hud.appendChild(controlsPanel);
+                playSurface.appendChild(hud);
+                layout.appendChild(playSurface);
+                break;
+            }
             case 'story':
-                rightPane.appendChild(this.renderStoryPanel());
-                break;
             case 'exploration':
-                rightPane.appendChild(this.renderExplorationPanel());
+            case 'settings': {
+                // Left pane — title + flavor text, mostly transparent
+                const leftPane = el('div', {
+                    flex: '1',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'flex-end',
+                    padding: '0 0 40px 48px',
+                    pointerEvents: 'none',
+                });
+                leftPane.appendChild(this.renderTitle());
+                layout.appendChild(leftPane);
+                // Right pane — UI panels
+                const rightPane = el('div', {
+                    width: 'clamp(320px, 38vw, 480px)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'center',
+                    gap: '12px',
+                    padding: '32px 40px 32px 20px',
+                    pointerEvents: 'auto',
+                });
+                // Wrongness indicator (top of right pane)
+                rightPane.appendChild(this.renderWrongnessIndicator());
+                if (mode === 'story') {
+                    rightPane.appendChild(this.renderStoryPanel());
+                }
+                else if (mode === 'exploration') {
+                    rightPane.appendChild(this.renderExplorationPanel());
+                }
+                else if (mode === 'settings') {
+                    rightPane.appendChild(this.renderSettingsPanel());
+                }
+                // Bottom status bar
+                rightPane.appendChild(this.renderStatusBar());
+                layout.appendChild(rightPane);
                 break;
-            case 'settings':
-                rightPane.appendChild(this.renderSettingsPanel());
-                break;
-            case 'play':
-                rightPane.appendChild(this.renderRunPanel());
+            }
+            default:
                 break;
         }
-        // Bottom status bar
-        rightPane.appendChild(this.renderStatusBar());
-        layout.appendChild(rightPane);
         this.root.appendChild(layout);
     }
     // ── Background: full-bleed, layered, parallax-ish ───────────────────────────
@@ -552,23 +734,139 @@ class HomeScreen {
             img.src = this.bgPath(`${i + 1}.png`);
             bg.appendChild(img);
         }
-        // Right-side vignette — darkens the panel area so UI reads clearly
-        const vignetteRight = el('div', {
-            position: 'absolute',
-            inset: '0',
-            background: 'linear-gradient(to left, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.55) 30%, rgba(0,0,0,0.0) 65%)',
-            pointerEvents: 'none',
-        });
-        bg.appendChild(vignetteRight);
+        const moon = el('div');
+        moon.className = 'drifter-moon';
+        bg.appendChild(moon);
         // Bottom vignette — grounds the title
         const vignetteBottom = el('div', {
             position: 'absolute',
             inset: '0',
-            background: 'linear-gradient(to top, rgba(0,0,0,0.70) 0%, rgba(0,0,0,0.0) 50%)',
+            background: 'linear-gradient(to top, rgba(0,0,0,0.70) 0%, rgba(0,0,0,0.0) 48%)',
             pointerEvents: 'none',
         });
         bg.appendChild(vignetteBottom);
         return bg;
+    }
+    createPlaySession() {
+        this.disposePlaySession();
+        const canvas = document.createElement('canvas');
+        canvas.style.width = '100%';
+        canvas.style.height = '100%';
+        canvas.style.display = 'block';
+        canvas.style.imageRendering = 'pixelated';
+        const renderer = new IsometricRenderer({
+            canvas,
+            viewSize: 14,
+            cameraDistance: 30,
+            pixelPipeline: { internalWidth: 384, internalHeight: 216 },
+        });
+        const sky = new SkySystem({ textureWidth: 512, textureHeight: 512, zoneSeed: this.currentZone?.seed ?? 4242 });
+        sky.init();
+        renderer.attachSky(sky);
+        const zone = this.currentZone;
+        if (zone) {
+            sky.update(0, {
+                timeOfDay: zone.timeOfDay,
+                weatherState: zone.weatherState,
+                fogIntensity: zone.fogIntensity,
+                wrongnessState: zone.wrongnessState,
+                zoneSeed: zone.seed,
+            });
+            renderer.syncSky();
+        }
+        const ground = new THREE.Mesh(new THREE.PlaneGeometry(24, 24, 24, 24), new THREE.MeshStandardMaterial({ color: 0x11151d, roughness: 1, metalness: 0.05 }));
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        renderer.scene.add(ground);
+        const grid = new THREE.GridHelper(24, 24, 0x2f3948, 0x161c24);
+        grid.position.y = 0.01;
+        renderer.scene.add(grid);
+        const maxDimension = Math.max(zone?.size.width ?? 96, zone?.size.height ?? 96, 24);
+        const drifterMesh = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.9, 0.45), new THREE.MeshStandardMaterial({ color: 0x8fd1ff, emissive: 0x17344d, emissiveIntensity: 0.4 }));
+        drifterMesh.position.set(0, 0.45, 0);
+        renderer.scene.add(drifterMesh);
+        for (const building of zone?.buildings ?? []) {
+            const width = Math.max(0.9, (building.size.width / maxDimension) * 4.8);
+            const height = Math.max(0.9, (building.size.height / maxDimension) * 4.8);
+            const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, width), new THREE.MeshStandardMaterial({ color: 0x233140, roughness: 0.95, metalness: 0.04 }));
+            const x = (building.position.x / maxDimension) * 12 - 6;
+            const z = (building.position.y / maxDimension) * 12 - 6;
+            mesh.position.set(x, height / 2, z);
+            renderer.scene.add(mesh);
+        }
+        const onKeyDown = (event) => {
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'w', 'a', 's', 'd'].includes(event.key)) {
+                event.preventDefault();
+            }
+            this.heldKeys.add(event.key.toLowerCase());
+            this.syncInputVector();
+        };
+        const onKeyUp = (event) => {
+            this.heldKeys.delete(event.key.toLowerCase());
+            this.syncInputVector();
+        };
+        window.addEventListener('keydown', onKeyDown);
+        window.addEventListener('keyup', onKeyUp);
+        const animate = (timestamp) => {
+            const session = this.playSession;
+            if (!session)
+                return;
+            const deltaSeconds = Math.min(0.05, (timestamp - session.lastTimestamp) / 1000);
+            session.lastTimestamp = timestamp;
+            if (this.engine && this.currentZone) {
+                this.engine.update(deltaSeconds, this.inputVector, []);
+                if (this.engine.drifter.position) {
+                    const sceneX = (this.engine.drifter.position.x / maxDimension) * 12 - 6;
+                    const sceneZ = (this.engine.drifter.position.y / maxDimension) * 12 - 6;
+                    drifterMesh.position.set(sceneX, 0.45, sceneZ);
+                }
+            }
+            sky.update(deltaSeconds, {
+                timeOfDay: zone?.timeOfDay ?? 12,
+                weatherState: zone?.weatherState ?? '',
+                fogIntensity: zone?.fogIntensity ?? 0.2,
+                wrongnessState: zone?.wrongnessState ?? WrongnessState.GREY,
+                zoneSeed: zone?.seed ?? 4242,
+            });
+            renderer.syncSky(deltaSeconds);
+            renderer.render();
+            session.animationFrame = window.requestAnimationFrame(animate);
+        };
+        this.playSession = {
+            canvas,
+            renderer,
+            sky,
+            drifterMesh,
+            animationFrame: window.requestAnimationFrame(animate),
+            lastTimestamp: performance.now(),
+            cleanup: () => {
+                window.removeEventListener('keydown', onKeyDown);
+                window.removeEventListener('keyup', onKeyUp);
+                if (this.playSession?.animationFrame !== null && this.playSession?.animationFrame !== undefined) {
+                    window.cancelAnimationFrame(this.playSession.animationFrame);
+                }
+            },
+        };
+    }
+    disposePlaySession() {
+        if (!this.playSession)
+            return;
+        this.playSession.cleanup();
+        this.playSession.renderer.dispose();
+        this.playSession = null;
+    }
+    syncInputVector() {
+        let x = 0;
+        let y = 0;
+        if (this.heldKeys.has('arrowright') || this.heldKeys.has('d'))
+            x += 1;
+        if (this.heldKeys.has('arrowleft') || this.heldKeys.has('a'))
+            x -= 1;
+        if (this.heldKeys.has('arrowdown') || this.heldKeys.has('s'))
+            y += 1;
+        if (this.heldKeys.has('arrowup') || this.heldKeys.has('w'))
+            y -= 1;
+        this.inputVector = { x, y };
     }
     // ── Title (left pane, bottom-anchored) ──────────────────────────────────────
     renderTitle() {
@@ -596,17 +894,6 @@ class HomeScreen {
         });
         title.innerHTML = 'ANOTHER<br>SKY: DRIFTER';
         wrap.appendChild(title);
-        const tagline = el('p', {
-            margin: '12px 0 0',
-            fontFamily: "'Share Tech Mono', monospace",
-            fontSize: '0.72rem',
-            letterSpacing: '0.06em',
-            color: 'var(--text-secondary)',
-            lineHeight: '1.6',
-            maxWidth: '380px',
-        });
-        tagline.textContent = 'The world is the interface. The relay is a living node. Step into the breach.';
-        wrap.appendChild(tagline);
         return wrap;
     }
     // ── Wrongness indicator (top-right, small) ───────────────────────────────────
@@ -623,78 +910,87 @@ class HomeScreen {
         wrap.appendChild(badge);
         return wrap;
     }
-    // ── Station Status panel ─────────────────────────────────────────────────────
-    renderStationStatus() {
-        const panel = el('div');
-        panel.className = 'drifter-panel';
-        Object.assign(panel.style, { padding: '16px 20px' });
-        if (WRONGNESS_PALETTE[this.wrongnessState].glitch)
-            panel.classList.add('glitching');
-        const header = el('div', {
-            fontFamily: "'Share Tech Mono', monospace",
-            fontSize: '0.65rem',
-            letterSpacing: '0.2em',
-            color: 'var(--text-secondary)',
-            marginBottom: '12px',
-            textTransform: 'uppercase',
-        });
-        header.textContent = '// STATION STATUS';
-        panel.appendChild(header);
-        const rows = [
-            ['Sky State', WRONGNESS_PALETTE[this.wrongnessState].label],
-            ['Power', '72% Nominal'],
-            ['Relay', 'Unstable'],
-            ['Volume', `${Math.round(this.settings.volume * 100)}%`],
-            ['Difficulty', `Level ${this.settings.difficulty}`],
-            ['Hints', this.settings.showHints ? 'Enabled' : 'Disabled'],
+    // ── Station status inline text for menu — left-anchored, raw mono ─────────────
+    renderStationStatusInline() {
+        const statusLines = [
+            ['SIGNAL STRENGTH', '72%'],
+            ['STATION ID', 'R-23'],
+            ['DATE', new Date().toISOString().slice(0, 10)],
+            ['TIME', new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })],
         ];
-        for (const [label, value] of rows) {
+        const wrap = el('div');
+        wrap.className = 'drifter-inline-status';
+        for (const [label, value] of statusLines) {
             const row = el('div');
-            row.className = 'status-row';
-            const l = el('span');
-            l.className = 'drifter-label';
-            l.textContent = label;
-            const v = el('span');
-            v.className = 'drifter-value';
-            v.textContent = value;
-            row.appendChild(l);
-            row.appendChild(v);
-            panel.appendChild(row);
+            row.className = 'drifter-inline-status-row';
+            const labelEl = el('span');
+            labelEl.textContent = label;
+            const valueEl = el('span');
+            Object.assign(valueEl.style, {
+                color: 'var(--text-primary)',
+            });
+            valueEl.textContent = value;
+            row.appendChild(labelEl);
+            row.appendChild(valueEl);
+            wrap.appendChild(row);
         }
-        return panel;
+        return wrap;
+    }
+    renderTagline() {
+        const tag = el('div');
+        tag.className = 'drifter-tagline';
+        tag.textContent = 'THE SIGNAL IS WEAK, BUT IT\'S STILL CALLING.';
+        return tag;
     }
     // ── Main nav panel ───────────────────────────────────────────────────────────
     renderMenuNav() {
-        const panel = el('div');
-        panel.className = 'drifter-panel';
-        Object.assign(panel.style, { padding: '20px' });
-        if (WRONGNESS_PALETTE[this.wrongnessState].glitch)
-            panel.classList.add('glitching');
-        const header = el('div', {
+        const wrap = el('div');
+        Object.assign(wrap.style, {
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px',
+            pointerEvents: 'auto',
+        });
+        const header = el('div');
+        Object.assign(header.style, {
             fontFamily: "'Share Tech Mono', monospace",
             fontSize: '0.65rem',
-            letterSpacing: '0.2em',
+            letterSpacing: '0.22em',
             color: 'var(--text-secondary)',
-            marginBottom: '14px',
             textTransform: 'uppercase',
+            marginBottom: '10px',
         });
-        header.textContent = '// SELECT ACCESS NODE';
-        panel.appendChild(header);
+        header.textContent = 'SELECT ACCESS NODE';
+        wrap.appendChild(header);
         const navItems = [
-            ['[01]', 'Experience the crack in reality', () => this.setMode('story')],
-            ['[02]', 'Exploration run', () => this.setMode('exploration')],
-            ['[03]', 'Settings', () => this.setMode('settings')],
+            ['[01] EXPERIENCE THE CRACK IN REALITY', '', () => this.setMode('story')],
+            ['[02] EXPLORATION RUN', '', () => this.setMode('exploration')],
+            ['[03] SETTINGS', '', () => this.setMode('settings')],
         ];
-        const btnWrap = el('div', { display: 'flex', flexDirection: 'column', gap: '4px' });
-        for (const [idx, label, onClick] of navItems) {
-            const btn = el('button');
-            btn.className = 'drifter-btn';
-            btn.innerHTML = `<span style="color:var(--text-secondary);font-family:'Share Tech Mono',monospace;font-size:0.7rem;margin-right:10px;">${idx}</span>${label}`;
-            btn.onclick = onClick;
-            btnWrap.appendChild(btn);
+        for (let idx = 0; idx < navItems.length; idx += 1) {
+            const [label, , onClick] = navItems[idx];
+            const item = el('div');
+            item.className = 'drifter-menu-item';
+            if (idx === this.menuIndex)
+                item.classList.add('active');
+            item.textContent = label;
+            item.onclick = () => {
+                this.menuIndex = idx;
+                onClick();
+            };
+            item.onmouseenter = () => {
+                this.menuIndex = idx;
+                this.render();
+            };
+            item.tabIndex = 0;
+            item.onkeydown = (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    onClick();
+                }
+            };
+            wrap.appendChild(item);
         }
-        panel.appendChild(btnWrap);
-        return panel;
+        return wrap;
     }
     // ── Story panel ──────────────────────────────────────────────────────────────
     renderStoryPanel() {
@@ -862,92 +1158,6 @@ class HomeScreen {
         panel.appendChild(back);
         return panel;
     }
-    // ── Run/play panel ───────────────────────────────────────────────────────────
-    renderRunPanel() {
-        const panel = el('div');
-        panel.className = 'drifter-panel';
-        Object.assign(panel.style, { padding: '20px' });
-        const header = el('div', {
-            fontFamily: "'Share Tech Mono', monospace",
-            fontSize: '0.65rem',
-            letterSpacing: '0.2em',
-            color: 'var(--text-secondary)',
-            marginBottom: '14px',
-        });
-        header.textContent = '// ACTIVE RUN';
-        panel.appendChild(header);
-        if (!this.engine || !this.currentZone) {
-            const err = el('p', { color: '#ff7070', fontSize: '0.85rem', margin: '0 0 16px' });
-            err.textContent = 'No active run. Return to menu.';
-            panel.appendChild(err);
-            const back = el('button');
-            back.className = 'drifter-btn';
-            back.textContent = 'Return to relay';
-            back.onclick = () => this.setMode('menu');
-            panel.appendChild(back);
-            return panel;
-        }
-        const rows = [
-            ['Drifter', `${this.engine.drifter.name} · ${this.engine.drifter.origin}`],
-            ['Zone', `${this.currentZone.name}`],
-            ['Type', this.currentZone.type],
-            ['Signal', `${Math.round(this.engine.drifter.signalStrength)}%`],
-            ['Air Quality', `${Math.round(this.engine.drifter.airQuality)}%`],
-            ['Difficulty', `Level ${this.settings.difficulty}`],
-        ];
-        for (const [label, value] of rows) {
-            const row = el('div');
-            row.className = 'status-row';
-            const l = el('span');
-            l.className = 'drifter-label';
-            l.textContent = label;
-            const v = el('span');
-            v.className = 'drifter-value';
-            v.textContent = value;
-            row.appendChild(l);
-            row.appendChild(v);
-            panel.appendChild(row);
-        }
-        Object.assign(panel.style, { marginBottom: '8px' });
-        const actionGrid = el('div', { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginTop: '14px' });
-        const advanceBtn = el('button');
-        advanceBtn.className = 'drifter-btn';
-        advanceBtn.textContent = 'Advance time';
-        advanceBtn.onclick = () => {
-            this.engine?.update(1, { x: 0, y: 0 }, []);
-            this.statusMessage = 'Time advanced one unit.';
-            this.render();
-        };
-        actionGrid.appendChild(advanceBtn);
-        const sampleBtn = el('button');
-        sampleBtn.className = 'drifter-btn';
-        sampleBtn.textContent = 'Collect sample';
-        sampleBtn.onclick = () => {
-            const item = {
-                id: `sample-${Date.now()}`,
-                name: 'Relay Sample',
-                description: 'A minor world artifact.',
-                iconIndex: 1,
-                isWeapon: false,
-                value: 8,
-                weight: 1,
-                position: { x: this.engine?.drifter.position.x ?? 0, y: this.engine?.drifter.position.y ?? 0 },
-                buildingID: this.currentZone?.buildings?.[0]?.id ?? 'unknown',
-                roomID: null,
-            };
-            this.statusMessage = this.engine?.pickUpItem(item) ? 'Sample logged to logbook.' : 'Inventory full.';
-            this.render();
-        };
-        actionGrid.appendChild(sampleBtn);
-        panel.appendChild(actionGrid);
-        const back = el('button');
-        back.className = 'drifter-btn secondary';
-        back.textContent = '← Abort run';
-        back.onclick = () => this.setMode('menu');
-        Object.assign(back.style, { marginTop: '8px' });
-        panel.appendChild(back);
-        return panel;
-    }
     // ── Status bar (bottom of right pane) ───────────────────────────────────────
     renderStatusBar() {
         const bar = el('div');
@@ -979,6 +1189,7 @@ class HomeScreen {
     setMode(mode) {
         this.mode = mode;
         if (mode === 'menu') {
+            this.disposePlaySession();
             this.backgroundFolder = this.pickBackground();
             this.statusMessage = 'Relay node connection established. Standing by.';
         }
@@ -1018,6 +1229,7 @@ class HomeScreen {
         });
         this.mode = 'play';
         this.statusMessage = mode === 'story' ? 'Story run initiated. Keep the relay alive.' : 'Exploration run started. Move quietly.';
+        this.createPlaySession();
         this.render();
     }
 }
