@@ -12,10 +12,10 @@
  */
 
 import * as THREE from 'three';
-import { IsometricRenderer } from './render/IsometricRenderer.js';
-import { SkySystem } from './render/SkySystem.js';
-import { IsoTileMap, loadTileSet } from './render/IsoTileMap.js';
-import type { WeatherType } from './types.js';
+import { IsometricRenderer } from './IsometricRenderer.js';
+import { SkySystem } from './SkySystem.js';
+import { IsoTileMap, loadTileSet } from './IsoTileMap.js';
+import type { WeatherType } from '../types.js';
 
 const canvas = document.createElement('canvas');
 canvas.style.width = '100vw';
