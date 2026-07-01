@@ -262,6 +262,103 @@ function injectGlobalStyles(): void {
       animation: glitch-border 6s infinite;
     }
 
+    .drifter-menu-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding: 28px 32px 40px 40px;
+      width: min(460px, 46vw);
+      max-width: 520px;
+      height: 100%;
+      pointer-events: auto;
+    }
+
+    .drifter-inline-status {
+      display: grid;
+      gap: 10px;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.78rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      white-space: pre;
+    }
+
+    .drifter-inline-status-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 18px;
+      align-items: center;
+    }
+
+    .drifter-menu-item {
+      display: flex;
+      align-items: center;
+      gap: 0.7rem;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.95rem;
+      letter-spacing: 0.24em;
+      text-transform: uppercase;
+      color: var(--text-primary);
+      cursor: pointer;
+      background: transparent;
+      border: none;
+      padding: 6px 0;
+      outline: none;
+      position: relative;
+      width: fit-content;
+      min-width: 100%;
+    }
+
+    .drifter-menu-item::before {
+      content: '';
+      width: 10px;
+      height: 10px;
+      border: 1px solid transparent;
+      border-radius: 2px;
+      transition: border-color 0.18s ease, opacity 0.18s ease;
+      opacity: 0;
+      flex-shrink: 0;
+    }
+
+    .drifter-menu-item.active::before {
+      opacity: 1;
+      border-color: var(--accent-color);
+      box-shadow: 0 0 0 1px rgba(136, 204, 255, 0.22);
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .drifter-menu-item:hover {
+      color: var(--accent-color);
+    }
+
+    .drifter-tagline {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.75rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      max-width: 420px;
+      line-height: 1.6;
+    }
+
+    .drifter-moon {
+      position: absolute;
+      top: 10%;
+      right: 14%;
+      width: 96px;
+      height: 96px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(246,249,255,0.96) 0%, rgba(230,236,247,0.45) 40%, rgba(230,236,247,0.08) 62%, transparent 100%);
+      filter: blur(0.4px);
+      box-shadow: 0 0 32px rgba(240,248,255,0.18);
+      pointer-events: none;
+      opacity: 0.95;
+    }
+
     .drifter-btn {
       display: block;
       width: 100%;
@@ -435,6 +532,7 @@ class HomeScreen {
   private currentZone: Zone | null = null;
   private backgroundFolder: MenuBackgroundFolder;
   private statusMessage = 'Relay node connection established. Standing by.';
+  private menuIndex = 0;
 
   // Wrongness for menu is always GREY (6 months post-collapse, first zone is Finland)
   // Can be overridden if a zone is active
@@ -474,6 +572,7 @@ class HomeScreen {
     this.applyThemeVars();
     this.root.innerHTML = '';
 
+    const mode = this.mode;
     const p = WRONGNESS_PALETTE[this.wrongnessState];
 
     // ── Scanlines (screen-space, fixed, behind everything else) ─────────────
@@ -500,56 +599,83 @@ class HomeScreen {
     this.root.appendChild(this.renderBackground(p.skyFilter));
 
     // ── Full-bleed split layout ──────────────────────────────────────────────
-    // Left ~55% = world/title space (bleeds into background)
-    // Right ~45% = UI panels (anchored right edge)
     const layout = el('div', {
       position: 'absolute',
       inset: '0',
-      display: 'flex',
-      alignItems: 'stretch',
       zIndex: '10',
       pointerEvents: 'none',
     });
 
-    // Left pane — title + flavor text, mostly transparent
-    const leftPane = el('div', {
-      flex: '1',
-      display: 'flex',
-      flexDirection: 'column',
-      justifyContent: 'flex-end',
-      padding: '0 0 40px 48px',
-      pointerEvents: 'none',
-    });
-    leftPane.appendChild(this.renderTitle());
-    layout.appendChild(leftPane);
+    switch (mode) {
+      case 'menu': {
+        const overlay = el('div');
+        overlay.className = 'drifter-menu-overlay';
+        overlay.appendChild(this.renderTitle());
 
-    // Right pane — UI panels
-    const rightPane = el('div', {
-      width: 'clamp(320px, 38vw, 480px)',
-      display: 'flex',
-      flexDirection: 'column',
-      justifyContent: 'center',
-      gap: '12px',
-      padding: '32px 40px 32px 20px',
-      pointerEvents: 'auto',
-    });
+        const bottomBlock = el('div');
+        Object.assign(bottomBlock.style, {
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '22px',
+          width: '100%',
+        });
+        bottomBlock.appendChild(this.renderStationStatusInline());
+        bottomBlock.appendChild(this.renderMenuNav());
+        bottomBlock.appendChild(this.renderTagline());
 
-    // Wrongness indicator (top of right pane)
-    rightPane.appendChild(this.renderWrongnessIndicator());
+        overlay.appendChild(bottomBlock);
+        layout.appendChild(overlay);
+        break;
+      }
+      case 'story':
+      case 'exploration':
+      case 'settings':
+      case 'play': {
+        // Left pane — title + flavor text, mostly transparent
+        const leftPane = el('div', {
+          flex: '1',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'flex-end',
+          padding: '0 0 40px 48px',
+          pointerEvents: 'none',
+        });
+        leftPane.appendChild(this.renderTitle());
+        layout.appendChild(leftPane);
 
-    // Mode-specific content
-    switch (this.mode) {
-      case 'menu':       rightPane.appendChild(this.renderStationStatus()); rightPane.appendChild(this.renderMenuNav()); break;
-      case 'story':      rightPane.appendChild(this.renderStoryPanel()); break;
-      case 'exploration':rightPane.appendChild(this.renderExplorationPanel()); break;
-      case 'settings':   rightPane.appendChild(this.renderSettingsPanel()); break;
-      case 'play':       rightPane.appendChild(this.renderRunPanel()); break;
+        // Right pane — UI panels
+        const rightPane = el('div', {
+          width: 'clamp(320px, 38vw, 480px)',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          gap: '12px',
+          padding: '32px 40px 32px 20px',
+          pointerEvents: 'auto',
+        });
+
+        // Wrongness indicator (top of right pane)
+        rightPane.appendChild(this.renderWrongnessIndicator());
+
+        if (mode === 'story') {
+          rightPane.appendChild(this.renderStoryPanel());
+        } else if (mode === 'exploration') {
+          rightPane.appendChild(this.renderExplorationPanel());
+        } else if (mode === 'settings') {
+          rightPane.appendChild(this.renderSettingsPanel());
+        } else if (mode === 'play') {
+          rightPane.appendChild(this.renderRunPanel());
+        }
+
+        // Bottom status bar
+        rightPane.appendChild(this.renderStatusBar());
+        layout.appendChild(rightPane);
+        break;
+      }
+      default:
+        break;
     }
 
-    // Bottom status bar
-    rightPane.appendChild(this.renderStatusBar());
-
-    layout.appendChild(rightPane);
     this.root.appendChild(layout);
   }
 
@@ -595,20 +721,15 @@ class HomeScreen {
       bg.appendChild(img);
     }
 
-    // Right-side vignette — darkens the panel area so UI reads clearly
-    const vignetteRight = el('div', {
-      position: 'absolute',
-      inset: '0',
-      background: 'linear-gradient(to left, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.55) 30%, rgba(0,0,0,0.0) 65%)',
-      pointerEvents: 'none',
-    });
-    bg.appendChild(vignetteRight);
+    const moon = el('div');
+    moon.className = 'drifter-moon';
+    bg.appendChild(moon);
 
     // Bottom vignette — grounds the title
     const vignetteBottom = el('div', {
       position: 'absolute',
       inset: '0',
-      background: 'linear-gradient(to top, rgba(0,0,0,0.70) 0%, rgba(0,0,0,0.0) 50%)',
+      background: 'linear-gradient(to top, rgba(0,0,0,0.70) 0%, rgba(0,0,0,0.0) 48%)',
       pointerEvents: 'none',
     });
     bg.appendChild(vignetteBottom);
@@ -645,18 +766,6 @@ class HomeScreen {
     title.innerHTML = 'ANOTHER<br>SKY: DRIFTER';
     wrap.appendChild(title);
 
-    const tagline = el('p', {
-      margin: '12px 0 0',
-      fontFamily: "'Share Tech Mono', monospace",
-      fontSize: '0.72rem',
-      letterSpacing: '0.06em',
-      color: 'var(--text-secondary)',
-      lineHeight: '1.6',
-      maxWidth: '380px',
-    });
-    tagline.textContent = 'The world is the interface. The relay is a living node. Step into the breach.';
-    wrap.appendChild(tagline);
-
     return wrap;
   }
 
@@ -675,86 +784,95 @@ class HomeScreen {
     return wrap;
   }
 
-  // ── Station Status panel ─────────────────────────────────────────────────────
-  private renderStationStatus(): HTMLElement {
-    const panel = el('div');
-    panel.className = 'drifter-panel';
-    Object.assign(panel.style, { padding: '16px 20px' });
-    if (WRONGNESS_PALETTE[this.wrongnessState].glitch) panel.classList.add('glitching');
-
-    const header = el('div', {
-      fontFamily: "'Share Tech Mono', monospace",
-      fontSize: '0.65rem',
-      letterSpacing: '0.2em',
-      color: 'var(--text-secondary)',
-      marginBottom: '12px',
-      textTransform: 'uppercase',
-    });
-    header.textContent = '// STATION STATUS';
-    panel.appendChild(header);
-
-    const rows: [string, string][] = [
-      ['Sky State', WRONGNESS_PALETTE[this.wrongnessState].label],
-      ['Power', '72% Nominal'],
-      ['Relay', 'Unstable'],
-      ['Volume', `${Math.round(this.settings.volume * 100)}%`],
-      ['Difficulty', `Level ${this.settings.difficulty}`],
-      ['Hints', this.settings.showHints ? 'Enabled' : 'Disabled'],
+  // ── Station status inline text for menu — left-anchored, raw mono ─────────────
+  private renderStationStatusInline(): HTMLElement {
+    const statusLines: [string, string][] = [
+      ['SIGNAL STRENGTH', '72%'],
+      ['STATION ID', 'R-23'],
+      ['DATE', new Date().toISOString().slice(0, 10)],
+      ['TIME', new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })],
     ];
 
-    for (const [label, value] of rows) {
+    const wrap = el('div');
+    wrap.className = 'drifter-inline-status';
+
+    for (const [label, value] of statusLines) {
       const row = el('div');
-      row.className = 'status-row';
-      const l = el('span');
-      l.className = 'drifter-label';
-      l.textContent = label;
-      const v = el('span');
-      v.className = 'drifter-value';
-      v.textContent = value;
-      row.appendChild(l);
-      row.appendChild(v);
-      panel.appendChild(row);
+      row.className = 'drifter-inline-status-row';
+      const labelEl = el('span');
+      labelEl.textContent = label;
+      const valueEl = el('span');
+      Object.assign(valueEl.style, {
+        color: 'var(--text-primary)',
+      });
+      valueEl.textContent = value;
+      row.appendChild(labelEl);
+      row.appendChild(valueEl);
+      wrap.appendChild(row);
     }
 
-    return panel;
+    return wrap;
+  }
+
+  private renderTagline(): HTMLElement {
+    const tag = el('div');
+    tag.className = 'drifter-tagline';
+    tag.textContent = 'THE SIGNAL IS WEAK, BUT IT\'S STILL CALLING.';
+    return tag;
   }
 
   // ── Main nav panel ───────────────────────────────────────────────────────────
   private renderMenuNav(): HTMLElement {
-    const panel = el('div');
-    panel.className = 'drifter-panel';
-    Object.assign(panel.style, { padding: '20px' });
-    if (WRONGNESS_PALETTE[this.wrongnessState].glitch) panel.classList.add('glitching');
+    const wrap = el('div');
+    Object.assign(wrap.style, {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '10px',
+      pointerEvents: 'auto',
+    });
 
-    const header = el('div', {
+    const header = el('div');
+    Object.assign(header.style, {
       fontFamily: "'Share Tech Mono', monospace",
       fontSize: '0.65rem',
-      letterSpacing: '0.2em',
+      letterSpacing: '0.22em',
       color: 'var(--text-secondary)',
-      marginBottom: '14px',
       textTransform: 'uppercase',
+      marginBottom: '10px',
     });
-    header.textContent = '// SELECT ACCESS NODE';
-    panel.appendChild(header);
+    header.textContent = 'SELECT ACCESS NODE';
+    wrap.appendChild(header);
 
     const navItems: [string, string, () => void][] = [
-      ['[01]', 'Experience the crack in reality', () => this.setMode('story')],
-      ['[02]', 'Exploration run', () => this.setMode('exploration')],
-      ['[03]', 'Settings', () => this.setMode('settings')],
+      ['[01] EXPERIENCE THE CRACK IN REALITY', '', () => this.setMode('story')],
+      ['[02] EXPLORATION RUN', '', () => this.setMode('exploration')],
+      ['[03] SETTINGS', '', () => this.setMode('settings')],
     ];
 
-    const btnWrap = el('div', { display: 'flex', flexDirection: 'column', gap: '4px' });
-
-    for (const [idx, label, onClick] of navItems) {
-      const btn = el('button');
-      btn.className = 'drifter-btn';
-      btn.innerHTML = `<span style="color:var(--text-secondary);font-family:'Share Tech Mono',monospace;font-size:0.7rem;margin-right:10px;">${idx}</span>${label}`;
-      btn.onclick = onClick;
-      btnWrap.appendChild(btn);
+    for (let idx = 0; idx < navItems.length; idx += 1) {
+      const [label, , onClick] = navItems[idx];
+      const item = el('div');
+      item.className = 'drifter-menu-item';
+      if (idx === this.menuIndex) item.classList.add('active');
+      item.textContent = label;
+      item.onclick = () => {
+        this.menuIndex = idx;
+        onClick();
+      };
+      item.onmouseenter = () => {
+        this.menuIndex = idx;
+        this.render();
+      };
+      item.tabIndex = 0;
+      item.onkeydown = (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          onClick();
+        }
+      };
+      wrap.appendChild(item);
     }
 
-    panel.appendChild(btnWrap);
-    return panel;
+    return wrap;
   }
 
   // ── Story panel ──────────────────────────────────────────────────────────────
