@@ -18,6 +18,11 @@ import { HuskSystem, HuskSystemOptions } from './HuskSystem.js';
 import { WorldInfoLayer, WorldInfoDeposit, WorldInfoLayerOptions } from './WorldInfoLayer.js';
 import { RunManager } from './RunManager.js';
 import type { ThreatDetectionContext } from './ThreatModel.js';
+import { ZoneStreamer, type ZoneStreamerOptions } from './ZoneStreamer.js';
+import { TextureCache, type TextureCacheOptions } from '../render/TextureCache.js';
+import { SVGRasterizer } from '../render/SVGRasterizer.js';
+import { SVGBuildingFactory } from '../render/SVGBuildingFactory.js';
+import { WorldGenerator } from '../worldgen.js';
 
 export interface GameplayEngineOptions {
   seed: number;
@@ -27,6 +32,10 @@ export interface GameplayEngineOptions {
   huskOptions?: HuskSystemOptions;
   worldInfoOptions?: WorldInfoLayerOptions;
   rosterSeed?: number;
+  /** TextureCache capacity override — defaults to 256 entries. */
+  textureCacheOptions?: TextureCacheOptions;
+  /** Callbacks for ZoneStreamer zone load/unload events. */
+  zoneStreamerCallbacks?: Pick<ZoneStreamerOptions, 'onLoad' | 'onUnload'>;
 }
 
 export class GameplayEngine {
@@ -40,6 +49,15 @@ export class GameplayEngine {
   public worldInfoLayer: WorldInfoLayer;
   public runManager: RunManager;
   public currentRun: Run;
+
+  /** Shared rasterizer — single instance, reused across all building bakes. */
+  public readonly rasterizer: SVGRasterizer;
+  /** LRU texture cache wired to the rasterizer. */
+  public readonly textureCache: TextureCache;
+  /** Building factory with TextureCache wired in. */
+  public readonly buildingFactory: SVGBuildingFactory;
+  /** Zone streaming window — call moveTo() on zone transition. */
+  public readonly zoneStreamer: ZoneStreamer;
 
   private roster: DrifterRoster;
   private depositCountThisRun = 0;
@@ -75,6 +93,30 @@ export class GameplayEngine {
 
     this.maxDepositsPerRun = options.maxDepositsPerRun ?? 4;
     this.currentRun = this.runManager.startRun(this.drifter, options.zone);
+
+    // ── Rendering infrastructure ──────────────────────────────────────────────
+    this.rasterizer = new SVGRasterizer();
+    this.textureCache = new TextureCache(this.rasterizer, options.textureCacheOptions);
+    this.buildingFactory = new SVGBuildingFactory(
+      this.rasterizer,
+      256,
+      256,
+      this.textureCache,
+    );
+
+    // ── Zone streamer — starts at grid position (0,0); caller should call
+    //    moveTo() with the actual starting grid position if known. ──────────
+    this.zoneStreamer = new ZoneStreamer({
+      generator: new WorldGenerator({
+        seed: options.seed,
+        zoneCount: 6,
+        difficulty: 5,
+        era: 'Early Collapse',
+      }),
+      textureCache: this.textureCache,
+      onLoad: options.zoneStreamerCallbacks?.onLoad ?? ((_zone, _isCenter) => {}),
+      onUnload: options.zoneStreamerCallbacks?.onUnload ?? ((_zoneID) => {}),
+    });
   }
 
   public update(deltaSeconds: number, input: Vector2, obstacles: Array<{ position: Vector2; size: { width: number; height: number } }>): void {

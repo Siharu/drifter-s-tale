@@ -9,3 +9,4 @@ export { InventorySystem } from './InventorySystem.js';
 export { WorldInfoLayer } from './WorldInfoLayer.js';
 export { RunManager, type RunPhase } from './RunManager.js';
 export { GameplayEngine } from './GameplayEngine.js';
+export { ZoneStreamer, type ZoneStreamerOptions, type ZoneGridPos } from './ZoneStreamer.js';

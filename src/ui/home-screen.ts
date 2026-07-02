@@ -872,18 +872,18 @@ class HomeScreen {
     drifterMesh.position.set(0, 0.45, 0);
     renderer.scene.add(drifterMesh);
 
+    // Use the engine's wired buildingFactory (SVGRasterizer → TextureCache → SVGBuildingFactory)
+    // so buildings get real procedural SVG facades and their textures are tracked for zone eviction.
     for (const building of zone?.buildings ?? []) {
-      const width = Math.max(0.9, (building.size.width / maxDimension) * 4.8);
-      const height = Math.max(0.9, (building.size.height / maxDimension) * 4.8);
-      const mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(width, height, width),
-        new THREE.MeshStandardMaterial({ color: 0x233140, roughness: 0.95, metalness: 0.04 })
-      );
+      const diorama = this.engine!.buildingFactory.build(building, zone?.id as import('../types.js').ZoneID);
       const x = (building.position.x / maxDimension) * 12 - 6;
       const z = (building.position.y / maxDimension) * 12 - 6;
-      mesh.position.set(x, height / 2, z);
-      renderer.scene.add(mesh);
+      diorama.group.position.set(x, 0, z);
+      renderer.scene.add(diorama.group);
     }
+
+    // Seed the streamer at the starting grid cell (0,0 for single-zone runs)
+    this.engine!.zoneStreamer.moveTo({ col: 0, row: 0 });
 
     const onKeyDown = (event: KeyboardEvent): void => {
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'w', 'a', 's', 'd'].includes(event.key)) {
