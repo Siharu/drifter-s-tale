@@ -64,6 +64,14 @@
 >
 > **LORE CROSS-CHECK (JULY 2, 2026):** Re-read the bible's non-Som sections (Foundational Framework, Husks, Infected, Ghuuls, World Anomalies, Countries, Factions, In-World Theories, Timeline, WW3/Bite Rules/Immunes) against `husk_records.ts`, `fact_pools.ts`, and this doc's faction/anomaly summaries — no conflicts found, all current data holds up. One useful confirmation for the deferred `worldgen.ts` L146 work: the bible's World-2 timeline states the outbreak began **April 5, 2032, in Nepal villages** — this is exactly why the planned curated wrongness/region progression is framed as "Finland → Nepal" (Finland is one of the calmer Remaining-Governments-aligned countries; Nepal is outbreak ground zero, so it should read as the most "Another Sky"-state region). Worth keeping as the anchor point whenever that curated assignment actually gets designed.
 >
+> **SESSION UPDATE (JULY 2, 2026 — MENU ATMOSPHERE, ENTRY FLOW, AND RESPONSIVE POLISH):**
+> - Built a standalone cinematic menu shell in `menu.html` with a full-bleed relay-station background, animated rain, lightning/thunder pulses, scanlines, noise, glitch title text, and a signal-network SVG overlay.
+> - Restored the storm loop after a script conflict and confirmed the rain/thunder effects continue to run in the browser.
+> - Embedded the red tower warning light directly into the background image asset so it reads as part of the scene rather than as a separate overlay.
+> - Added responsive breakpoints for smaller screens so the title, status panels, and navigation stack reflow cleanly on mobile and tablet viewports.
+> - Kept the menu entry flow aligned with the runtime shell: Continue/New Game/Expedition/Settings now transition into the real HomeScreen gameplay shell, while Archives/Credits remain placeholder overlays for future expansion.
+> - Sanity-checked the local TypeScript build path after the UI pass; the compiler completed without reporting errors.
+>
 > **Bugs found and fixed across two sessions (don't reintroduce):**
 > 1. `SVGRasterizer.ts` didn't exist — `SVGBuildingFactory.ts` was importing a phantom file.
 > 2. `PixelPipeline.renderScene()` missing viewport reset — Three.js `setRenderTarget()` does NOT reset viewport (separate state), causing scene to render cropped into corner of 384×216 buffer. Fixed: explicit `setViewport(0,0,internalWidth,internalHeight)` before each scene render.

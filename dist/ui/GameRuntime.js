@@ -80,6 +80,15 @@ export class GameRuntime {
         this.renderer.attachSky(this.sky);
         this.sky.applyZone(this.zone);
         this.renderer.syncSky();
+        // Wire ZoneStreamer so crossing zone boundaries updates the scene.
+        this.engine.zoneStreamer.setCallbacks((zone, isCenter) => {
+            if (isCenter) {
+                // Rebuild the scene around the new center zone.
+                this.buildScene(zone);
+            }
+        }, (_zoneID) => {
+            // Neighbour zones are memory-only; no scene objects to remove.
+        });
         this.buildScene();
         this.engine.zoneStreamer.moveTo({ col: 0, row: 0 });
         window.addEventListener('keydown', this.onKeyDown);
@@ -115,8 +124,9 @@ export class GameRuntime {
             y -= 1;
         return { x, y };
     }
-    buildScene() {
+    buildScene(zoneOverride) {
         this.disposeSceneObjects();
+        const activeZone = zoneOverride ?? this.zone;
         const ground = new THREE.Mesh(new THREE.PlaneGeometry(24, 24, 24, 24), new THREE.MeshStandardMaterial({ color: 0x11151d, roughness: 1, metalness: 0.05 }));
         ground.rotation.x = -Math.PI / 2;
         ground.receiveShadow = true;
@@ -126,14 +136,14 @@ export class GameRuntime {
         grid.position.y = 0.01;
         this.renderer.scene.add(grid);
         this.sceneObjects.push(grid);
-        const maxDimension = Math.max(this.zone.size.width, this.zone.size.height, 24);
+        const maxDimension = Math.max(activeZone.size.width, activeZone.size.height, 24);
         const drifter = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.9, 0.45), new THREE.MeshStandardMaterial({ color: 0x8fd1ff, emissive: 0x17344d, emissiveIntensity: 0.4 }));
         drifter.position.set(0, 0.45, 0);
         this.renderer.scene.add(drifter);
         this.drifterMesh = drifter;
         this.sceneObjects.push(drifter);
-        for (const building of this.zone.buildings ?? []) {
-            const diorama = this.engine.buildingFactory.build(building, this.zone.id);
+        for (const building of activeZone.buildings ?? []) {
+            const diorama = this.engine.buildingFactory.build(building, activeZone.id);
             const x = (building.position.x / maxDimension) * 12 - 6;
             const z = (building.position.y / maxDimension) * 12 - 6;
             diorama.group.position.set(x, 0, z);

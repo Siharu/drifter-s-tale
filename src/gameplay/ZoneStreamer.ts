@@ -65,8 +65,8 @@ export interface ZoneGridPos {
 export class ZoneStreamer {
   private readonly generator: WorldGenerator;
   private readonly textureCache: TextureCache;
-  private readonly onLoad: (zone: Zone, isCenter: boolean) => void;
-  private readonly onUnload: (zoneID: ZoneID) => void;
+  private onLoad: (zone: Zone, isCenter: boolean) => void;
+  private onUnload: (zoneID: ZoneID) => void;
   private readonly radius: number;
 
   /** Currently loaded zones keyed by "col,row" grid string. */
@@ -87,6 +87,18 @@ export class ZoneStreamer {
     this.onLoad = options.onLoad;
     this.onUnload = options.onUnload;
     this.radius = options.windowRadius ?? 1;
+  }
+
+  /**
+   * Replace the onLoad/onUnload callbacks after construction.
+   * Useful when the scene owner (e.g. GameRuntime) is created after the engine.
+   */
+  setCallbacks(
+    onLoad: (zone: Zone, isCenter: boolean) => void,
+    onUnload: (zoneID: ZoneID) => void,
+  ): void {
+    this.onLoad = onLoad;
+    this.onUnload = onUnload;
   }
 
   /**

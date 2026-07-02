@@ -8,6 +8,8 @@ export declare class HomeScreen {
     private statusMessage;
     private menuIndex;
     private gameRuntime;
+    private menuDateInitialized;
+    private menuDateValue;
     private wrongnessState;
     constructor(rootId?: string);
     launchStory(): void;
@@ -22,7 +24,9 @@ export declare class HomeScreen {
     private disposePlaySession;
     private renderTitle;
     private renderWrongnessIndicator;
+    private renderSignalMeter;
     private renderStationStatusInline;
+    private getMenuDateTime;
     private renderTagline;
     private renderMenuNav;
     private renderStoryPanel;

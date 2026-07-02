@@ -57,8 +57,8 @@ export interface ZoneGridPos {
 export declare class ZoneStreamer {
     private readonly generator;
     private readonly textureCache;
-    private readonly onLoad;
-    private readonly onUnload;
+    private onLoad;
+    private onUnload;
     private readonly radius;
     /** Currently loaded zones keyed by "col,row" grid string. */
     private loaded;
@@ -69,6 +69,11 @@ export declare class ZoneStreamer {
     /** Pending zone IDs to unload on next flush(). */
     private pendingUnload;
     constructor(options: ZoneStreamerOptions);
+    /**
+     * Replace the onLoad/onUnload callbacks after construction.
+     * Useful when the scene owner (e.g. GameRuntime) is created after the engine.
+     */
+    setCallbacks(onLoad: (zone: Zone, isCenter: boolean) => void, onUnload: (zoneID: ZoneID) => void): void;
     /**
      * Move the streaming window to a new center zone-grid position.
      * Queues loads/unloads; call flush() to execute them (or they run

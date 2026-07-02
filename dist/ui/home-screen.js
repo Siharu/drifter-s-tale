@@ -135,7 +135,7 @@ function injectGlobalStyles() {
     const style = document.createElement('style');
     style.id = 'drifter-global-styles';
     style.textContent = `
-    @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Rubik+Glitch&family=VT323&family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap');
 
     *, *::before, *::after { box-sizing: border-box; }
 
@@ -213,6 +213,11 @@ function injectGlobalStyles() {
       99% { opacity: 0.8; }
     }
 
+    @keyframes signal-bar-flicker {
+      0%, 100% { transform: scaleY(0.45); opacity: 0.22; }
+      50% { transform: scaleY(1); opacity: 1; }
+    }
+
     .drifter-panel {
       background: var(--panel-bg);
       border: 1px solid var(--border-color);
@@ -252,7 +257,7 @@ function injectGlobalStyles() {
     .drifter-inline-status {
       display: grid;
       gap: 10px;
-      font-family: 'Share Tech Mono', monospace;
+      font-family: 'VT323', 'Share Tech Mono', monospace;
       font-size: 0.78rem;
       letter-spacing: 0.18em;
       text-transform: uppercase;
@@ -271,7 +276,7 @@ function injectGlobalStyles() {
       display: flex;
       align-items: center;
       gap: 0.7rem;
-      font-family: 'Share Tech Mono', monospace;
+      font-family: 'VT323', 'Share Tech Mono', monospace;
       font-size: 0.95rem;
       letter-spacing: 0.24em;
       text-transform: uppercase;
@@ -309,7 +314,7 @@ function injectGlobalStyles() {
     }
 
     .drifter-tagline {
-      font-family: 'Share Tech Mono', monospace;
+      font-family: 'VT323', 'Share Tech Mono', monospace;
       font-size: 0.75rem;
       letter-spacing: 0.18em;
       text-transform: uppercase;
@@ -339,7 +344,7 @@ function injectGlobalStyles() {
       background: transparent;
       border: 1px solid var(--border-color);
       color: var(--text-primary);
-      font-family: 'Rajdhani', system-ui, sans-serif;
+      font-family: 'Rubik Glitch', 'Rajdhani', system-ui, sans-serif;
       font-size: 1rem;
       font-weight: 600;
       letter-spacing: 0.08em;
@@ -387,7 +392,7 @@ function injectGlobalStyles() {
     }
 
     .drifter-label {
-      font-family: 'Share Tech Mono', monospace;
+      font-family: 'VT323', 'Share Tech Mono', monospace;
       font-size: 0.7rem;
       letter-spacing: 0.15em;
       text-transform: uppercase;
@@ -395,7 +400,7 @@ function injectGlobalStyles() {
     }
 
     .drifter-value {
-      font-family: 'Share Tech Mono', monospace;
+      font-family: 'VT323', 'Share Tech Mono', monospace;
       font-size: 0.75rem;
       color: var(--text-primary);
     }
@@ -419,7 +424,7 @@ function injectGlobalStyles() {
       padding: 3px 8px;
       border: 1px solid var(--accent-color);
       color: var(--accent-color);
-      font-family: 'Share Tech Mono', monospace;
+      font-family: 'VT323', 'Share Tech Mono', monospace;
       font-size: 0.65rem;
       letter-spacing: 0.12em;
     }
@@ -430,6 +435,47 @@ function injectGlobalStyles() {
       border-radius: 50%;
       background: var(--accent-color);
       animation: signal-pulse 2s ease-in-out infinite;
+    }
+
+    .drifter-signal-value {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      justify-content: flex-end;
+      min-width: 110px;
+    }
+
+    .drifter-signal-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent-color);
+      box-shadow: 0 0 10px rgba(136, 204, 255, 0.55);
+      animation: signal-pulse 1.2s ease-in-out infinite;
+      flex-shrink: 0;
+    }
+
+    .drifter-signal-meter {
+      display: inline-flex;
+      align-items: flex-end;
+      gap: 2px;
+      height: 10px;
+      min-width: 54px;
+    }
+
+    .drifter-signal-bar {
+      width: 3px;
+      border-radius: 999px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.95) 0%, var(--accent-color) 100%);
+      box-shadow: 0 0 6px rgba(136, 204, 255, 0.2);
+      opacity: 0.22;
+      animation: signal-bar-flicker 1.1s ease-in-out infinite;
+      animation-delay: var(--delay, 0s);
+      transform-origin: bottom;
+    }
+
+    .drifter-signal-bar.active {
+      opacity: 1;
     }
 
     .bottom-bar {
@@ -502,6 +548,8 @@ export class HomeScreen {
         this.statusMessage = 'Relay node connection established. Standing by.';
         this.menuIndex = 0;
         this.gameRuntime = null;
+        this.menuDateInitialized = false;
+        this.menuDateValue = null;
         // Wrongness for menu is always GREY (6 months post-collapse, first zone is Finland)
         // Can be overridden if a zone is active
         this.wrongnessState = WrongnessState.GREY;
@@ -524,7 +572,13 @@ export class HomeScreen {
         this.setMode('settings');
     }
     showMenu() {
-        this.setMode('menu');
+        this.disposePlaySession();
+        this.mode = 'menu';
+        this.currentZone = null;
+        this.engine = null;
+        this.statusMessage = 'Relay node connection established. Standing by.';
+        this.backgroundFolder = this.pickBackground();
+        this.render();
         // If the legacy static menu panel exists (menu.html), show it and hide the app container.
         try {
             const panel = document.getElementById('panel');
@@ -561,26 +615,35 @@ export class HomeScreen {
         this.root.innerHTML = '';
         const mode = this.mode;
         const p = WRONGNESS_PALETTE[this.wrongnessState];
+        const shouldShowAtmosphere = mode !== 'play';
         // ── Scanlines (screen-space, fixed, behind everything else) ─────────────
-        const scanlines = el('div');
-        scanlines.id = 'drifter-scanlines';
-        scanlines.style.opacity = String(p.scanlineOpacity);
-        this.root.appendChild(scanlines);
-        // ── Noise (fixed behind scanlines) ──────────────────────────────────────
-        const noiseWrap = el('div');
-        noiseWrap.id = 'drifter-noise';
-        noiseWrap.style.opacity = String(p.noiseOpacity);
-        if (p.noiseOpacity > 0) {
-            noiseWrap.appendChild(createNoiseCanvas(1));
-            // Animate noise refresh
-            setInterval(() => {
-                noiseWrap.innerHTML = '';
-                noiseWrap.appendChild(createNoiseCanvas(1));
-            }, 120);
+        if (shouldShowAtmosphere) {
+            const scanlines = el('div');
+            scanlines.id = 'drifter-scanlines';
+            scanlines.style.opacity = String(p.scanlineOpacity);
+            this.root.appendChild(scanlines);
         }
-        this.root.appendChild(noiseWrap);
+        // ── Noise (fixed behind scanlines) ──────────────────────────────────────
+        if (shouldShowAtmosphere) {
+            const noiseWrap = el('div');
+            noiseWrap.id = 'drifter-noise';
+            noiseWrap.style.opacity = String(p.noiseOpacity);
+            if (p.noiseOpacity > 0) {
+                noiseWrap.appendChild(createNoiseCanvas(1));
+                // Animate noise refresh
+                setInterval(() => {
+                    noiseWrap.innerHTML = '';
+                    noiseWrap.appendChild(createNoiseCanvas(1));
+                }, 120);
+            }
+            this.root.appendChild(noiseWrap);
+        }
         // ── Background ───────────────────────────────────────────────────────────
-        this.root.appendChild(this.renderBackground(p.skyFilter));
+        const backgroundLayer = this.renderBackground(p.skyFilter);
+        if (mode === 'play') {
+            backgroundLayer.style.opacity = '0.3';
+        }
+        this.root.appendChild(backgroundLayer);
         // ── Full-bleed split layout ──────────────────────────────────────────────
         const layout = el('div', {
             position: 'absolute',
@@ -619,6 +682,7 @@ export class HomeScreen {
                     inset: '0',
                     zIndex: '0',
                     pointerEvents: 'none',
+                    background: 'radial-gradient(circle at center, rgba(4,10,18,0.18) 0%, rgba(2,4,8,0.88) 70%, rgba(1,2,4,1) 100%)',
                 });
                 if (this.gameRuntime) {
                     const canvas = this.gameRuntime.canvas;
@@ -627,6 +691,7 @@ export class HomeScreen {
                     canvas.style.display = 'block';
                     canvas.style.objectFit = 'cover';
                     canvas.style.pointerEvents = 'none';
+                    canvas.style.filter = 'contrast(1.04) saturate(1.05)';
                     canvasWrap.appendChild(canvas);
                     this.gameRuntime.handleResize();
                 }
@@ -669,6 +734,21 @@ export class HomeScreen {
                 });
                 controlsPanel.textContent = 'LIVE SCENE · THREE.JS RENDERER ACTIVE';
                 hud.appendChild(controlsPanel);
+                const backButton = el('button', {
+                    padding: '10px 14px',
+                    background: 'rgba(4, 8, 15, 0.86)',
+                    border: '1px solid rgba(255,255,255,0.18)',
+                    color: 'var(--text-primary)',
+                    cursor: 'pointer',
+                    fontFamily: "'Share Tech Mono', monospace",
+                    fontSize: '0.68rem',
+                    letterSpacing: '0.16em',
+                    textTransform: 'uppercase',
+                    backdropFilter: 'blur(8px)',
+                });
+                backButton.textContent = '← MAIN MENU';
+                backButton.onclick = () => this.showMenu();
+                hud.appendChild(backButton);
                 playSurface.appendChild(hud);
                 layout.appendChild(playSurface);
                 break;
@@ -798,7 +878,7 @@ export class HomeScreen {
         wrap.appendChild(eyebrow);
         const title = el('h1', {
             margin: '0 0 8px',
-            fontFamily: "'Rajdhani', system-ui, sans-serif",
+            fontFamily: "'Rubik Glitch', 'Rajdhani', system-ui, sans-serif",
             fontSize: 'clamp(2.8rem, 5.5vw, 4.2rem)',
             fontWeight: '700',
             letterSpacing: '0.04em',
@@ -807,7 +887,7 @@ export class HomeScreen {
             color: 'var(--text-primary)',
             textShadow: '0 2px 40px rgba(0,0,0,0.9)',
         });
-        title.innerHTML = 'ANOTHER<br>SKY: DRIFTER';
+        title.innerHTML = 'DRIFTER\'S<br>TALE';
         wrap.appendChild(title);
         return wrap;
     }
@@ -825,31 +905,102 @@ export class HomeScreen {
         wrap.appendChild(badge);
         return wrap;
     }
+    renderSignalMeter(percent) {
+        const wrap = el('span');
+        wrap.className = 'drifter-signal-value';
+        const dot = el('span');
+        dot.className = 'drifter-signal-dot';
+        wrap.appendChild(dot);
+        const meter = el('span');
+        meter.className = 'drifter-signal-meter';
+        const activeBars = Math.max(1, Math.min(6, Math.round(percent / 16)));
+        for (let index = 0; index < 6; index += 1) {
+            const bar = el('span');
+            bar.className = 'drifter-signal-bar';
+            bar.style.setProperty('--delay', `${index * 0.08}s`);
+            bar.style.height = `${4 + index * 1.6}px`;
+            if (index < activeBars) {
+                bar.classList.add('active');
+            }
+            meter.appendChild(bar);
+        }
+        wrap.appendChild(meter);
+        const valueText = el('span');
+        Object.assign(valueText.style, {
+            color: 'var(--text-primary)',
+            marginLeft: '4px',
+        });
+        valueText.textContent = `${percent}%`;
+        wrap.appendChild(valueText);
+        return wrap;
+    }
     // ── Station status inline text for menu — left-anchored, raw mono ─────────────
     renderStationStatusInline() {
+        const now = this.getMenuDateTime();
+        const signalPercent = this.engine
+            ? Math.max(8, Math.min(99, Math.round(this.engine.drifter.signalStrength)))
+            : 72;
         const statusLines = [
-            ['SIGNAL STRENGTH', '72%'],
-            ['STATION ID', 'R-23'],
-            ['DATE', new Date().toISOString().slice(0, 10)],
-            ['TIME', new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })],
+            ['SIGNAL STRENGTH', this.renderSignalMeter(signalPercent)],
+            ['STATION ID', (() => {
+                    const elNode = el('span');
+                    elNode.textContent = 'R-23';
+                    Object.assign(elNode.style, { color: 'var(--text-primary)' });
+                    return elNode;
+                })()],
+            ['DATE', (() => {
+                    const elNode = el('span');
+                    elNode.textContent = now.date;
+                    Object.assign(elNode.style, { color: 'var(--text-primary)' });
+                    return elNode;
+                })()],
+            ['TIME', (() => {
+                    const elNode = el('span');
+                    elNode.textContent = now.time;
+                    Object.assign(elNode.style, { color: 'var(--text-primary)' });
+                    return elNode;
+                })()],
         ];
         const wrap = el('div');
         wrap.className = 'drifter-inline-status';
-        for (const [label, value] of statusLines) {
+        for (const [label, valueNode] of statusLines) {
             const row = el('div');
             row.className = 'drifter-inline-status-row';
             const labelEl = el('span');
             labelEl.textContent = label;
-            const valueEl = el('span');
-            Object.assign(valueEl.style, {
-                color: 'var(--text-primary)',
-            });
-            valueEl.textContent = value;
             row.appendChild(labelEl);
-            row.appendChild(valueEl);
+            row.appendChild(valueNode);
             wrap.appendChild(row);
         }
         return wrap;
+    }
+    getMenuDateTime() {
+        const storageKey = 'drifter-menu-current-date-v4';
+        const start = new Date(2032, 1, 7, 0, 0, 0);
+        if (!this.menuDateInitialized) {
+            sessionStorage.removeItem('drifter-menu-current-date-v2');
+            sessionStorage.removeItem('drifter-menu-current-date-v3');
+            sessionStorage.removeItem('drifter-menu-refresh-count');
+            const storedValue = sessionStorage.getItem(storageKey);
+            const parsed = storedValue ? new Date(storedValue) : null;
+            const displayDate = parsed && !Number.isNaN(parsed.getTime())
+                ? new Date(parsed)
+                : new Date(start);
+            const nextDate = new Date(displayDate);
+            nextDate.setDate(nextDate.getDate() + 1);
+            sessionStorage.setItem(storageKey, nextDate.toISOString());
+            this.menuDateValue = displayDate;
+            this.menuDateInitialized = true;
+        }
+        const date = this.menuDateValue ?? start;
+        const hours = Math.floor(Math.random() * 24);
+        const minutes = Math.floor(Math.random() * 60);
+        const timeDate = new Date(date);
+        timeDate.setHours(hours, minutes, 0, 0);
+        return {
+            date: `${String(date.getDate()).padStart(2, '0')}.${String(date.getMonth() + 1).padStart(2, '0')}.${date.getFullYear()}`,
+            time: timeDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        };
     }
     renderTagline() {
         const tag = el('div');

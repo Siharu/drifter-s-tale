@@ -38,6 +38,14 @@ export class ZoneStreamer {
         this.radius = options.windowRadius ?? 1;
     }
     /**
+     * Replace the onLoad/onUnload callbacks after construction.
+     * Useful when the scene owner (e.g. GameRuntime) is created after the engine.
+     */
+    setCallbacks(onLoad, onUnload) {
+        this.onLoad = onLoad;
+        this.onUnload = onUnload;
+    }
+    /**
      * Move the streaming window to a new center zone-grid position.
      * Queues loads/unloads; call flush() to execute them (or they run
      * automatically — flush() is called internally at the end of moveTo).
