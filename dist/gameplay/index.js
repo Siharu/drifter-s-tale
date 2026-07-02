@@ -9,4 +9,5 @@ export { InventorySystem } from './InventorySystem.js';
 export { WorldInfoLayer } from './WorldInfoLayer.js';
 export { RunManager } from './RunManager.js';
 export { GameplayEngine } from './GameplayEngine.js';
+export { ZoneStreamer } from './ZoneStreamer.js';
 //# sourceMappingURL=index.js.map

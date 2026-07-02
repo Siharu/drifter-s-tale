@@ -40,8 +40,9 @@ const FACADE_RULES = {
 };
 const FLOOR_HEIGHT = 1.4; // world units per floor, used to derive building height from `floors`
 export class SVGBuildingFactory {
-    constructor(rasterizer, textureWidth = 256, textureHeight = 256) {
+    constructor(rasterizer, textureWidth = 256, textureHeight = 256, textureCache) {
         this.rasterizer = rasterizer ?? new SVGRasterizer();
+        this.textureCache = textureCache ?? null;
         this.textureWidth = textureWidth;
         this.textureHeight = textureHeight;
     }
@@ -50,8 +51,13 @@ export class SVGBuildingFactory {
      * building.svgMesh (typed `unknown` in types.ts specifically to avoid
      * a Three.js dependency in the schema — this is the one place that
      * cast happens).
+     *
+     * @param building  Building data from WorldGenerator.
+     * @param zoneID    The zone this building belongs to. Required for TextureCache
+     *                  zone-eviction — all baked textures are registered under this
+     *                  zoneID so ZoneStreamer.evictZone() clears them on unload.
      */
-    build(building) {
+    build(building, zoneID) {
         const rules = FACADE_RULES[building.type];
         // Use the deterministic per-building seed assigned by WorldGenerator
         // (drawn from the zone's RNG stream), NOT building.id — id is
@@ -69,13 +75,25 @@ export class SVGBuildingFactory {
         const group = new THREE.Group();
         group.name = `building:${building.id}`;
         const cacheBase = `bldg:${building.type}:${seed}:${decay.toFixed(2)}:${width.toFixed(1)}x${height.toFixed(1)}`;
+        // Wrapper: register with TextureCache (if wired) and touch after every bake.
+        const bake = (svg, suffix) => {
+            const cacheKey = `${cacheBase}:${suffix}`;
+            if (this.textureCache && zoneID) {
+                this.textureCache.registerKey(cacheKey, zoneID);
+            }
+            const tex = this.rasterizer.bakeImmediate(svg, {
+                width: this.textureWidth,
+                height: this.textureHeight,
+                cacheKey,
+            });
+            if (this.textureCache) {
+                this.textureCache.touch(cacheKey);
+            }
+            return tex;
+        };
         // front wall
         const frontSvg = this.generateWallSVG(rules, width, height, decay, rng, 'front');
-        const frontTex = this.rasterizer.bakeImmediate(frontSvg, {
-            width: this.textureWidth,
-            height: this.textureHeight,
-            cacheKey: `${cacheBase}:front`,
-        });
+        const frontTex = bake(frontSvg, 'front');
         const frontPlane = this.makePlane(width, height, frontTex);
         frontPlane.position.set(0, height / 2, depth / 2);
         group.add(frontPlane);
@@ -83,11 +101,7 @@ export class SVGBuildingFactory {
         // from the fixed isometric angle, otherwise it's wasted draw calls/bake time
         if (Math.abs(width - depth) > 0.5 || depth > width) {
             const sideSvg = this.generateWallSVG(rules, depth, height, decay, rng, 'side');
-            const sideTex = this.rasterizer.bakeImmediate(sideSvg, {
-                width: this.textureWidth,
-                height: this.textureHeight,
-                cacheKey: `${cacheBase}:side`,
-            });
+            const sideTex = bake(sideSvg, 'side');
             const sidePlane = this.makePlane(depth, height, sideTex);
             sidePlane.rotation.y = -Math.PI / 2;
             sidePlane.position.set(width / 2, height / 2, 0);
@@ -95,11 +109,7 @@ export class SVGBuildingFactory {
         }
         // roof
         const roofSvg = this.generateRoofSVG(rules, width, depth, decay);
-        const roofTex = this.rasterizer.bakeImmediate(roofSvg, {
-            width: this.textureWidth,
-            height: this.textureHeight,
-            cacheKey: `${cacheBase}:roof`,
-        });
+        const roofTex = bake(roofSvg, 'roof');
         const roofPlane = this.makePlane(width, depth, roofTex);
         roofPlane.rotation.x = -Math.PI / 2;
         roofPlane.position.set(0, height, 0);

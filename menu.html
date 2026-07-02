@@ -20,6 +20,7 @@
     }
 
     html, body {
+      
       width: 100%; height: 100%;
       background: #000;
       overflow: hidden;
@@ -112,6 +113,15 @@
       image-rendering: pixelated;
     }
 
+    #app {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      display: none;
+      pointer-events: auto;
+      background: transparent;
+    }
+
     /* ── UI panel ── */
     #panel {
       position: fixed;
@@ -125,7 +135,6 @@
     }
 
     /* Title block */
-    .title-block {}
     .title-eyebrow {
       font-family: 'Share Tech Mono', monospace;
       font-size: 0.62rem;
@@ -254,6 +263,58 @@
       border-color: var(--off-white);
     }
 
+    #dialog-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,0.74);
+      padding: 28px;
+    }
+    .dialog-card {
+      width: min(640px, calc(100% - 64px));
+      background: rgba(11, 16, 22, 0.96);
+      border: 1px solid rgba(255,255,255,0.08);
+      box-shadow: 0 20px 80px rgba(0,0,0,0.54);
+      border-radius: 28px;
+      padding: 28px 28px 22px;
+    }
+    .dialog-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      align-items: flex-start;
+    }
+    .dialog-title {
+      margin: 0;
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 1.9rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: #ffffff;
+    }
+    .dialog-description {
+      margin: 12px 0 0;
+      color: var(--off-white);
+      line-height: 1.6;
+      max-width: 32rem;
+      font-size: 0.95rem;
+    }
+    .dialog-close {
+      border: 1px solid rgba(255,255,255,0.14);
+      background: transparent;
+      color: var(--off-white);
+      width: 44px;
+      height: 44px;
+      border-radius: 14px;
+      font-size: 1.35rem;
+      cursor: pointer;
+      transition: background 0.12s, transform 0.12s;
+    }
+    .dialog-close:hover { background: rgba(255,255,255,0.08); transform: translateY(-1px); }
+
     /* Bottom block */
     .bottom-block {
       display: flex;
@@ -291,6 +352,7 @@
   </style>
 </head>
 <body>
+<div id="app"></div>
 
 <!-- Background -->
 <div id="bg"></div>
@@ -405,6 +467,18 @@
     </button>
   </nav>
 
+  <div id="dialog-overlay" role="dialog" aria-modal="true" aria-labelledby="dialog-title" aria-describedby="dialog-body">
+    <div class="dialog-card">
+      <div class="dialog-header">
+        <div>
+          <h2 class="dialog-title" id="dialog-title">Panel</h2>
+          <p class="dialog-description" id="dialog-body">Select an option to continue.</p>
+        </div>
+        <button id="dialog-close" class="dialog-close" type="button" aria-label="Close panel">×</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Bottom -->
   <div class="bottom-block">
     <div class="tagline">The signal is weak,<br>but it's still calling.</div>
@@ -412,7 +486,56 @@
   </div>
 </div>
 
-<script>
+<script type="module">
+window.__DRIFTER_NO_AUTO_INIT__ = true;
+let realGameApp = null;
+let realGameReady = false;
+
+const appLoader = import('./dist/ui/home-screen.js')
+  .then(mod => {
+    const HomeScreen = mod.HomeScreen;
+    if (!HomeScreen) {
+      console.error('HomeScreen module did not export HomeScreen');
+      return;
+    }
+    realGameApp = new HomeScreen('app');
+    realGameReady = true;
+    const appEl = document.getElementById('app');
+    if (appEl) appEl.style.display = 'none';
+  })
+  .catch(err => {
+    console.error('Failed to load HomeScreen module', err);
+  });
+
+function showGameApp() {
+  const appEl = document.getElementById('app');
+  const panelEl = document.getElementById('panel');
+  if (appEl) appEl.style.display = 'block';
+  if (panelEl) panelEl.style.display = 'none';
+}
+
+function startGame(mode) {
+  if (!realGameReady) {
+    alert('Loading game engine, please wait...');
+    return;
+  }
+  showGameApp();
+  if (mode === 'story') {
+    realGameApp.launchStory();
+  } else {
+    realGameApp.launchExploration();
+  }
+}
+
+function openGameSettings() {
+  if (!realGameReady) {
+    alert('Loading game engine, please wait...');
+    return;
+  }
+  showGameApp();
+  realGameApp.showSettings();
+}
+
 // ── Tick clock ────────────────────────────────────────────────────────────────
 (function tickClock() {
   const timeEl = document.getElementById('stat-time');
@@ -425,11 +548,75 @@
 })();
 
 // ── Nav focus ─────────────────────────────────────────────────────────────────
+const panelDefinitions = {
+  continue: {
+    title: 'Continue Expedition',
+    body: 'Resume your last expedition with your current station progress. This prototype does not yet connect to the full game engine.'
+  },
+  'new-game': {
+    title: 'New Game',
+    body: 'Begin a fresh run and step into the relay station for the first time. In the full app, this would start a new game session.'
+  },
+  expedition: {
+    title: 'Expedition Mode',
+    body: 'Enter roguelite survival mode and pilot the Drifter through dangerous terrain. This overlay is a self-contained prototype for menu navigation.'
+  },
+  archives: {
+    title: 'Archives',
+    body: 'Browse Drifter logs, catalog entries, and mission history. This overlay is a prototype for menu navigation.'
+  },
+  settings: {
+    title: 'Settings',
+    body: 'Adjust relay configuration, audio, and display options. In the connected app, this would open the settings screen.'
+  },
+  credits: {
+    title: 'Credits',
+    body: 'See the team behind DRIFTER — ANOTHER SKY and the prototype experience.'
+  }
+};
+const overlayEl = document.getElementById('dialog-overlay');
+const overlayTitle = document.getElementById('dialog-title');
+const overlayBody = document.getElementById('dialog-body');
+const overlayClose = document.getElementById('dialog-close');
+
+function openPanel(action) {
+  const def = panelDefinitions[action];
+  if (!def) return;
+  overlayTitle.textContent = def.title;
+  overlayBody.textContent = def.body;
+  overlayEl.style.display = 'flex';
+  overlayClose.focus();
+}
+function closePanel() {
+  overlayEl.style.display = 'none';
+}
+
+overlayClose.addEventListener('click', closePanel);
+overlayEl.addEventListener('click', e => {
+  if (e.target === overlayEl) closePanel();
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && overlayEl.style.display === 'flex') closePanel();
+});
+
 document.getElementById('main-nav').addEventListener('click', e => {
   const btn = e.target.closest('.nav-item');
   if (!btn || btn.classList.contains('disabled')) return;
   document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
+
+  const action = btn.dataset.action;
+  if (action === 'continue') {
+    startGame('exploration');
+  } else if (action === 'new-game') {
+    startGame('story');
+  } else if (action === 'expedition') {
+    startGame('exploration');
+  } else if (action === 'settings') {
+    openGameSettings();
+  } else {
+    openPanel(action);
+  }
 });
 document.addEventListener('keydown', e => {
   const items = [...document.querySelectorAll('.nav-item:not(.disabled)')];
@@ -446,6 +633,12 @@ document.addEventListener('keydown', e => {
     prev.classList.add('active');
     prev.focus();
     e.preventDefault();
+  } else if (e.key === 'Enter' || e.key === ' ') {
+    const active = items[cur];
+    if (active) {
+      active.click();
+      e.preventDefault();
+    }
   }
 });
 

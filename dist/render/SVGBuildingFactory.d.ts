@@ -14,8 +14,9 @@
  * a SIGNAL_TOWER without any hand-placed content.
  */
 import * as THREE from 'three';
-import { type Building } from '../types.js';
+import { type Building, type ZoneID } from '../types.js';
 import { SVGRasterizer } from './SVGRasterizer.js';
+import { TextureCache } from './TextureCache.js';
 export interface BuildingDiorama {
     group: THREE.Group;
     width: number;
@@ -24,16 +25,22 @@ export interface BuildingDiorama {
 }
 export declare class SVGBuildingFactory {
     private rasterizer;
+    private textureCache;
     private textureWidth;
     private textureHeight;
-    constructor(rasterizer?: SVGRasterizer, textureWidth?: number, textureHeight?: number);
+    constructor(rasterizer?: SVGRasterizer, textureWidth?: number, textureHeight?: number, textureCache?: TextureCache);
     /**
      * Generates the diorama group for a Building and assigns it to
      * building.svgMesh (typed `unknown` in types.ts specifically to avoid
      * a Three.js dependency in the schema — this is the one place that
      * cast happens).
+     *
+     * @param building  Building data from WorldGenerator.
+     * @param zoneID    The zone this building belongs to. Required for TextureCache
+     *                  zone-eviction — all baked textures are registered under this
+     *                  zoneID so ZoneStreamer.evictZone() clears them on unload.
      */
-    build(building: Building): BuildingDiorama;
+    build(building: Building, zoneID?: ZoneID): BuildingDiorama;
     private makePlane;
     private generateWallSVG;
     private generateRoofSVG;

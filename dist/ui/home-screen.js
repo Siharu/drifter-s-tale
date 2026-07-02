@@ -495,7 +495,7 @@ function createNoiseCanvas(opacity) {
     return canvas;
 }
 // ─── HomeScreen class ─────────────────────────────────────────────────────────
-class HomeScreen {
+export class HomeScreen {
     constructor(rootId = 'app') {
         this.mode = 'menu';
         this.settings = { difficulty: 3, volume: 0.65, showHints: true };
@@ -517,6 +517,18 @@ class HomeScreen {
         injectGlobalStyles();
         this.applyThemeVars();
         this.render();
+    }
+    launchStory() {
+        this.startRun('story');
+    }
+    launchExploration() {
+        this.startRun('exploration');
+    }
+    showSettings() {
+        this.setMode('settings');
+    }
+    showMenu() {
+        this.setMode('menu');
     }
     run() {
         this.render();
@@ -785,15 +797,17 @@ class HomeScreen {
         const drifterMesh = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.9, 0.45), new THREE.MeshStandardMaterial({ color: 0x8fd1ff, emissive: 0x17344d, emissiveIntensity: 0.4 }));
         drifterMesh.position.set(0, 0.45, 0);
         renderer.scene.add(drifterMesh);
+        // Use the engine's wired buildingFactory (SVGRasterizer → TextureCache → SVGBuildingFactory)
+        // so buildings get real procedural SVG facades and their textures are tracked for zone eviction.
         for (const building of zone?.buildings ?? []) {
-            const width = Math.max(0.9, (building.size.width / maxDimension) * 4.8);
-            const height = Math.max(0.9, (building.size.height / maxDimension) * 4.8);
-            const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, width), new THREE.MeshStandardMaterial({ color: 0x233140, roughness: 0.95, metalness: 0.04 }));
+            const diorama = this.engine.buildingFactory.build(building, zone?.id);
             const x = (building.position.x / maxDimension) * 12 - 6;
             const z = (building.position.y / maxDimension) * 12 - 6;
-            mesh.position.set(x, height / 2, z);
-            renderer.scene.add(mesh);
+            diorama.group.position.set(x, 0, z);
+            renderer.scene.add(diorama.group);
         }
+        // Seed the streamer at the starting grid cell (0,0 for single-zone runs)
+        this.engine.zoneStreamer.moveTo({ col: 0, row: 0 });
         const onKeyDown = (event) => {
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'w', 'a', 's', 'd'].includes(event.key)) {
                 event.preventDefault();
@@ -1234,7 +1248,10 @@ class HomeScreen {
     }
 }
 window.addEventListener('DOMContentLoaded', () => {
-    const app = new HomeScreen('app');
-    app.run();
+    if (!window.__DRIFTER_NO_AUTO_INIT__) {
+        const app = new HomeScreen('app');
+        app.run();
+        window.__DRIFTER_APP = app;
+    }
 });
 //# sourceMappingURL=home-screen.js.map

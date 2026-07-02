@@ -537,7 +537,7 @@ interface PlaySession {
 
 // ─── HomeScreen class ─────────────────────────────────────────────────────────
 
-class HomeScreen {
+export class HomeScreen {
   private root: HTMLElement;
   private mode: AppMode = 'menu';
   private settings: GameSettings = { difficulty: 3, volume: 0.65, showHints: true };
@@ -562,6 +562,22 @@ class HomeScreen {
     injectGlobalStyles();
     this.applyThemeVars();
     this.render();
+  }
+
+  public launchStory(): void {
+    this.startRun('story');
+  }
+
+  public launchExploration(): void {
+    this.startRun('exploration');
+  }
+
+  public showSettings(): void {
+    this.setMode('settings');
+  }
+
+  public showMenu(): void {
+    this.setMode('menu');
   }
 
   public run(): void {
@@ -1377,6 +1393,9 @@ class HomeScreen {
 }
 
 window.addEventListener('DOMContentLoaded', () => {
-  const app = new HomeScreen('app');
-  app.run();
+  if (!(window as any).__DRIFTER_NO_AUTO_INIT__) {
+    const app = new HomeScreen('app');
+    app.run();
+    (window as any).__DRIFTER_APP = app;
+  }
 });

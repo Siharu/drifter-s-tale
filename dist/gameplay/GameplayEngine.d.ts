@@ -7,6 +7,10 @@ import { InventorySystem } from './InventorySystem.js';
 import { HuskSystem, HuskSystemOptions } from './HuskSystem.js';
 import { WorldInfoLayer, WorldInfoDeposit, WorldInfoLayerOptions } from './WorldInfoLayer.js';
 import { RunManager } from './RunManager.js';
+import { ZoneStreamer, type ZoneStreamerOptions } from './ZoneStreamer.js';
+import { TextureCache, type TextureCacheOptions } from '../render/TextureCache.js';
+import { SVGRasterizer } from '../render/SVGRasterizer.js';
+import { SVGBuildingFactory } from '../render/SVGBuildingFactory.js';
 export interface GameplayEngineOptions {
     seed: number;
     zone: Zone;
@@ -15,6 +19,10 @@ export interface GameplayEngineOptions {
     huskOptions?: HuskSystemOptions;
     worldInfoOptions?: WorldInfoLayerOptions;
     rosterSeed?: number;
+    /** TextureCache capacity override — defaults to 256 entries. */
+    textureCacheOptions?: TextureCacheOptions;
+    /** Callbacks for ZoneStreamer zone load/unload events. */
+    zoneStreamerCallbacks?: Pick<ZoneStreamerOptions, 'onLoad' | 'onUnload'>;
 }
 export declare class GameplayEngine {
     drifterEntity: DrifterEntity;
@@ -27,6 +35,14 @@ export declare class GameplayEngine {
     worldInfoLayer: WorldInfoLayer;
     runManager: RunManager;
     currentRun: Run;
+    /** Shared rasterizer — single instance, reused across all building bakes. */
+    readonly rasterizer: SVGRasterizer;
+    /** LRU texture cache wired to the rasterizer. */
+    readonly textureCache: TextureCache;
+    /** Building factory with TextureCache wired in. */
+    readonly buildingFactory: SVGBuildingFactory;
+    /** Zone streaming window — call moveTo() on zone transition. */
+    readonly zoneStreamer: ZoneStreamer;
     private roster;
     private depositCountThisRun;
     private maxDepositsPerRun;

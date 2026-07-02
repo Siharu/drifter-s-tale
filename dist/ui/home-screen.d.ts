@@ -1,2 +1,43 @@
-export {};
+export declare class HomeScreen {
+    private root;
+    private mode;
+    private settings;
+    private engine;
+    private currentZone;
+    private backgroundFolder;
+    private statusMessage;
+    private menuIndex;
+    private playSession;
+    private inputVector;
+    private readonly heldKeys;
+    private wrongnessState;
+    constructor(rootId?: string);
+    launchStory(): void;
+    launchExploration(): void;
+    showSettings(): void;
+    showMenu(): void;
+    run(): void;
+    private applyThemeVars;
+    private render;
+    private renderBackground;
+    private createPlaySession;
+    private disposePlaySession;
+    private syncInputVector;
+    private renderTitle;
+    private renderWrongnessIndicator;
+    private renderStationStatusInline;
+    private renderTagline;
+    private renderMenuNav;
+    private renderStoryPanel;
+    private renderExplorationPanel;
+    private renderSettingsPanel;
+    private renderStatusBar;
+    private makeSliderRow;
+    private setMode;
+    private bgPath;
+    private pickBackground;
+    private getSeed;
+    private generateZone;
+    private startRun;
+}
 //# sourceMappingURL=home-screen.d.ts.map

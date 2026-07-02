@@ -6,6 +6,11 @@ import { InventorySystem } from './InventorySystem.js';
 import { HuskSystem } from './HuskSystem.js';
 import { WorldInfoLayer } from './WorldInfoLayer.js';
 import { RunManager } from './RunManager.js';
+import { ZoneStreamer } from './ZoneStreamer.js';
+import { TextureCache } from '../render/TextureCache.js';
+import { SVGRasterizer } from '../render/SVGRasterizer.js';
+import { SVGBuildingFactory } from '../render/SVGBuildingFactory.js';
+import { WorldGenerator } from '../worldgen.js';
 export class GameplayEngine {
     constructor(options) {
         this.depositCountThisRun = 0;
@@ -34,6 +39,23 @@ export class GameplayEngine {
         });
         this.maxDepositsPerRun = options.maxDepositsPerRun ?? 4;
         this.currentRun = this.runManager.startRun(this.drifter, options.zone);
+        // ── Rendering infrastructure ──────────────────────────────────────────────
+        this.rasterizer = new SVGRasterizer();
+        this.textureCache = new TextureCache(this.rasterizer, options.textureCacheOptions);
+        this.buildingFactory = new SVGBuildingFactory(this.rasterizer, 256, 256, this.textureCache);
+        // ── Zone streamer — starts at grid position (0,0); caller should call
+        //    moveTo() with the actual starting grid position if known. ──────────
+        this.zoneStreamer = new ZoneStreamer({
+            generator: new WorldGenerator({
+                seed: options.seed,
+                zoneCount: 6,
+                difficulty: 5,
+                era: 'Early Collapse',
+            }),
+            textureCache: this.textureCache,
+            onLoad: options.zoneStreamerCallbacks?.onLoad ?? ((_zone, _isCenter) => { }),
+            onUnload: options.zoneStreamerCallbacks?.onUnload ?? ((_zoneID) => { }),
+        });
     }
     update(deltaSeconds, input, obstacles) {
         this.movementController.setInput(input);
