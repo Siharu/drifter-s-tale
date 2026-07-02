@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DRIFTER — ANOTHER SKY</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;400;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --red: #c0392b;
+      --red-glow: rgba(192, 57, 43, 0.6);
+      --off-white: #d8dce2;
+      --dim: #7a8590;
+      --dimmer: #4a5560;
+      --panel-w: 340px;
+    }
+
+    html, body {
+      width: 100%; height: 100%;
+      background: #000;
+      overflow: hidden;
+      font-family: 'Share Tech Mono', monospace;
+      color: var(--off-white);
+    }
+
+    /* ── Background image ── */
+    #bg {
+      position: fixed; inset: 0;
+      background-image: url('./assets/ui/wncorelastbastion.png');
+      background-size: cover;
+      background-position: center center;
+      /* slight dark tint so text reads cleanly */
+      filter: brightness(0.72) contrast(1.05);
+      z-index: 0;
+    }
+
+    /* ── Rain canvas ── */
+    #rain-canvas {
+      position: fixed; inset: 0;
+      z-index: 1;
+      pointer-events: none;
+    }
+
+    /* ── Lightning flash overlay ── */
+    #lightning {
+      position: fixed; inset: 0;
+      z-index: 2;
+      pointer-events: none;
+      background: rgba(200, 220, 255, 0);
+      transition: background 0.04s ease;
+    }
+
+    /* ── SVG effects layer (blinking dot, rain streaks on top) ── */
+    #svg-overlay {
+      position: fixed; inset: 0;
+      z-index: 3;
+      pointer-events: none;
+    }
+
+    /* ── Left gradient fade so panel text reads ── */
+    #left-fade {
+      position: fixed;
+      top: 0; left: 0; bottom: 0;
+      width: 540px;
+      background: linear-gradient(
+        to right,
+        rgba(0,0,0,0.88) 0%,
+        rgba(0,0,0,0.72) 40%,
+        rgba(0,0,0,0.0) 100%
+      );
+      z-index: 4;
+      pointer-events: none;
+    }
+
+    /* ── Left edge accent line ── */
+    #edge-line {
+      position: fixed;
+      top: 0; left: var(--panel-w);
+      width: 1px; height: 100%;
+      background: linear-gradient(to bottom,
+        transparent 0%,
+        rgba(255,255,255,0.06) 20%,
+        rgba(255,255,255,0.06) 80%,
+        transparent 100%
+      );
+      z-index: 5;
+      pointer-events: none;
+    }
+
+    /* ── Scanlines ── */
+    #scanlines {
+      position: fixed; inset: 0;
+      z-index: 6;
+      pointer-events: none;
+      background: repeating-linear-gradient(
+        to bottom,
+        transparent 0px, transparent 2px,
+        rgba(0,0,0,0.055) 2px, rgba(0,0,0,0.055) 3px
+      );
+    }
+
+    /* ── Noise flicker ── */
+    #noise {
+      position: fixed; inset: 0;
+      z-index: 7;
+      pointer-events: none;
+      opacity: 0.025;
+      image-rendering: pixelated;
+    }
+
+    /* ── UI panel ── */
+    #panel {
+      position: fixed;
+      top: 0; left: 0; bottom: 0;
+      width: var(--panel-w);
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 44px 36px 48px 40px;
+    }
+
+    /* Title block */
+    .title-block {}
+    .title-eyebrow {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.62rem;
+      letter-spacing: 0.32em;
+      color: var(--dimmer);
+      text-transform: uppercase;
+      margin-bottom: 14px;
+    }
+    .title-main {
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 3.6rem;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      line-height: 0.9;
+      color: #ffffff;
+      text-shadow: 0 0 40px rgba(0,0,0,0.9);
+    }
+    .title-sub {
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 0.9rem;
+      font-weight: 300;
+      letter-spacing: 0.55em;
+      text-transform: uppercase;
+      color: var(--dim);
+      margin-top: 8px;
+    }
+
+    /* Station stats */
+    .stats-block {
+      margin-top: 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .stat-row {
+      display: grid;
+      grid-template-columns: 120px 1fr;
+      font-size: 0.68rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--dim);
+    }
+    .stat-label { color: var(--dimmer); }
+    .stat-value { color: var(--off-white); }
+    .signal-bar {
+      display: flex; align-items: center; gap: 6px;
+    }
+    .signal-bar-inner {
+      display: flex; gap: 3px; align-items: center;
+    }
+    .signal-bar-inner span {
+      display: block;
+      width: 14px; height: 2px;
+      background: var(--dim);
+    }
+    .signal-bar-inner span.active { background: var(--off-white); }
+    .signal-tri {
+      width: 0; height: 0;
+      border-top: 4px solid transparent;
+      border-bottom: 4px solid transparent;
+      border-left: 6px solid var(--dim);
+      margin-left: 2px;
+    }
+
+    /* Nav */
+    .nav-block {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .nav-item {
+      display: flex;
+      flex-direction: column;
+      padding: 8px 0 8px 0;
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      text-align: left;
+      position: relative;
+      transition: color 0.12s;
+      outline: none;
+    }
+    .nav-item .nav-label {
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 1.15rem;
+      font-weight: 600;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--off-white);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      transition: color 0.12s, letter-spacing 0.12s;
+    }
+    .nav-item .nav-desc {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.6rem;
+      letter-spacing: 0.12em;
+      color: var(--dimmer);
+      margin-top: 2px;
+      padding-left: 22px;
+      display: none;
+    }
+    .nav-item.active .nav-label,
+    .nav-item:hover .nav-label {
+      color: #ffffff;
+      letter-spacing: 0.28em;
+    }
+    .nav-item.active .nav-desc,
+    .nav-item:hover .nav-desc {
+      display: block;
+    }
+    /* selection marker */
+    .nav-marker {
+      display: inline-block;
+      width: 10px; height: 10px;
+      border: 1px solid var(--dimmer);
+      background: transparent;
+      flex-shrink: 0;
+      transition: background 0.12s, border-color 0.12s;
+    }
+    .nav-item.active .nav-marker,
+    .nav-item:hover .nav-marker {
+      background: var(--off-white);
+      border-color: var(--off-white);
+    }
+
+    /* Bottom block */
+    .bottom-block {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .tagline {
+      font-size: 0.62rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--dimmer);
+      line-height: 1.65;
+    }
+    .morse {
+      font-size: 0.6rem;
+      letter-spacing: 0.2em;
+      color: var(--dimmer);
+      opacity: 0.6;
+    }
+
+    /* ── Animations ── */
+    @keyframes blink-red {
+      0%, 45%   { opacity: 1; }
+      50%, 95%  { opacity: 0.08; }
+      100%      { opacity: 1; }
+    }
+    @keyframes blink-glow {
+      0%, 45%   { opacity: 0.7; r: 7px; }
+      50%, 95%  { opacity: 0; r: 2px; }
+      100%      { opacity: 0.7; r: 7px; }
+    }
+
+    /* Active menu state class */
+    .nav-item.disabled .nav-label { color: var(--dimmer); opacity: 0.5; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+
+<!-- Background -->
+<div id="bg"></div>
+
+<!-- Rain canvas -->
+<canvas id="rain-canvas"></canvas>
+
+<!-- Lightning flash -->
+<div id="lightning"></div>
+
+<!-- SVG overlay: blinking tower dot + vignette details -->
+<svg id="svg-overlay" xmlns="http://www.w3.org/2000/svg">
+  <!-- Tower blink dot — positioned at the red light in the image (~62% x, ~17% y) -->
+  <!-- Outer glow -->
+  <circle id="tower-glow" cx="62%" cy="17%" r="14" fill="rgba(200,40,30,0.25)">
+    <animate attributeName="r" values="10;18;10" dur="1.8s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.35;0;0.35" dur="1.8s" repeatCount="indefinite"/>
+  </circle>
+  <!-- Core dot -->
+  <circle id="tower-dot" cx="62%" cy="17%" r="3.5" fill="#ff2a1a">
+    <animate attributeName="opacity" values="1;0.05;1" dur="1.8s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- Subtle vignette corners -->
+  <defs>
+    <radialGradient id="vig" cx="50%" cy="50%" r="70%" fx="50%" fy="50%">
+      <stop offset="55%" stop-color="transparent"/>
+      <stop offset="100%" stop-color="rgba(0,0,0,0.55)"/>
+    </radialGradient>
+  </defs>
+  <rect x="0" y="0" width="100%" height="100%" fill="url(#vig)"/>
+</svg>
+
+<!-- Left gradient -->
+<div id="left-fade"></div>
+<div id="edge-line"></div>
+
+<!-- Scanlines -->
+<div id="scanlines"></div>
+
+<!-- Noise -->
+<canvas id="noise"></canvas>
+
+<!-- UI Panel -->
+<div id="panel">
+
+  <!-- Title -->
+  <div>
+    <div class="title-block">
+      <div class="title-eyebrow">WNCORE · RELAY STATION 7</div>
+      <div class="title-main">DRIFTER</div>
+      <div class="title-sub">Another Sky</div>
+    </div>
+
+    <!-- Station stats -->
+    <div class="stats-block">
+      <div class="stat-row">
+        <span class="stat-label">Signal Strength</span>
+        <span class="stat-value signal-bar">
+          <span class="signal-bar-inner">
+            <span class="active"></span>
+            <span class="active"></span>
+            <span class="active"></span>
+            <span></span>
+            <span></span>
+          </span>
+          <span class="signal-tri"></span>
+        </span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Station ID</span>
+        <span class="stat-value" id="stat-station">R-23</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Date</span>
+        <span class="stat-value" id="stat-date">02.17.2068</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Time</span>
+        <span class="stat-value" id="stat-time">23:47</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Nav -->
+  <nav class="nav-block" id="main-nav">
+    <button class="nav-item active" data-action="continue">
+      <div class="nav-label"><span class="nav-marker"></span>Continue</div>
+      <div class="nav-desc">Resume your last expedition</div>
+    </button>
+    <button class="nav-item" data-action="new-game">
+      <div class="nav-label"><span class="nav-marker"></span>New Game</div>
+      <div class="nav-desc">Begin a fresh run</div>
+    </button>
+    <button class="nav-item" data-action="expedition">
+      <div class="nav-label"><span class="nav-marker"></span>Expedition</div>
+      <div class="nav-desc">Roguelite survival run</div>
+    </button>
+    <button class="nav-item" data-action="archives">
+      <div class="nav-label"><span class="nav-marker"></span>Archives</div>
+      <div class="nav-desc">Drifter logs &amp; catalog</div>
+    </button>
+    <button class="nav-item" data-action="settings">
+      <div class="nav-label"><span class="nav-marker"></span>Settings</div>
+      <div class="nav-desc">Relay configuration</div>
+    </button>
+    <button class="nav-item" data-action="credits">
+      <div class="nav-label"><span class="nav-marker"></span>Credits</div>
+    </button>
+    <button class="nav-item disabled" data-action="quit" style="margin-top:8px;">
+      <div class="nav-label"><span class="nav-marker"></span>Quit</div>
+    </button>
+  </nav>
+
+  <!-- Bottom -->
+  <div class="bottom-block">
+    <div class="tagline">The signal is weak,<br>but it's still calling.</div>
+    <div class="morse" id="morse-line">— — · — — —</div>
+  </div>
+</div>
+
+<script>
+// ── Tick clock ────────────────────────────────────────────────────────────────
+(function tickClock() {
+  const timeEl = document.getElementById('stat-time');
+  // frozen in-world time — blinks the colon
+  let colon = true;
+  setInterval(() => {
+    colon = !colon;
+    timeEl.textContent = colon ? '23:47' : '23 47';
+  }, 900);
+})();
+
+// ── Nav focus ─────────────────────────────────────────────────────────────────
+document.getElementById('main-nav').addEventListener('click', e => {
+  const btn = e.target.closest('.nav-item');
+  if (!btn || btn.classList.contains('disabled')) return;
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+});
+document.addEventListener('keydown', e => {
+  const items = [...document.querySelectorAll('.nav-item:not(.disabled)')];
+  const cur = items.findIndex(i => i.classList.contains('active'));
+  if (e.key === 'ArrowDown') {
+    const next = items[(cur + 1) % items.length];
+    items.forEach(i => i.classList.remove('active'));
+    next.classList.add('active');
+    next.focus();
+    e.preventDefault();
+  } else if (e.key === 'ArrowUp') {
+    const prev = items[(cur - 1 + items.length) % items.length];
+    items.forEach(i => i.classList.remove('active'));
+    prev.classList.add('active');
+    prev.focus();
+    e.preventDefault();
+  }
+});
+
+// ── Rain canvas ───────────────────────────────────────────────────────────────
+(function initRain() {
+  const canvas = document.getElementById('rain-canvas');
+  const ctx = canvas.getContext('2d');
+
+  let W, H;
+  const drops = [];
+  const DROP_COUNT = 420;
+
+  function resize() {
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  function makeDrops() {
+    drops.length = 0;
+    for (let i = 0; i < DROP_COUNT; i++) {
+      drops.push({
+        x: Math.random() * W,
+        y: Math.random() * H,
+        len: 10 + Math.random() * 22,
+        speed: 14 + Math.random() * 18,
+        opacity: 0.08 + Math.random() * 0.22,
+        width: 0.5 + Math.random() * 0.8,
+      });
+    }
+  }
+  makeDrops();
+  window.addEventListener('resize', makeDrops);
+
+  const ANGLE = Math.PI / 2 + 0.32; // slight diagonal
+
+  let last = 0;
+  function frame(ts) {
+    const dt = Math.min((ts - last) / 1000, 0.05);
+    last = ts;
+
+    ctx.clearRect(0, 0, W, H);
+
+    for (const d of drops) {
+      d.x += Math.cos(ANGLE) * d.speed * dt * 60 * 0.08;
+      d.y += Math.sin(ANGLE) * d.speed * dt * 60 * 0.14;
+
+      if (d.y > H + 30) { d.y = -30; d.x = Math.random() * W; }
+      if (d.x > W + 10) { d.x = -10; }
+
+      ctx.beginPath();
+      ctx.strokeStyle = `rgba(160,180,210,${d.opacity})`;
+      ctx.lineWidth = d.width;
+      ctx.moveTo(d.x, d.y);
+      ctx.lineTo(
+        d.x + Math.cos(ANGLE) * d.len,
+        d.y + Math.sin(ANGLE) * d.len
+      );
+      ctx.stroke();
+    }
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+
+// ── Noise canvas ──────────────────────────────────────────────────────────────
+(function initNoise() {
+  const c = document.getElementById('noise');
+  c.width = 200; c.height = 200;
+  c.style.width = '100%'; c.style.height = '100%';
+  const ctx = c.getContext('2d');
+
+  function refreshNoise() {
+    const img = ctx.createImageData(200, 200);
+    for (let i = 0; i < img.data.length; i += 4) {
+      const v = Math.random() * 255 | 0;
+      img.data[i] = img.data[i+1] = img.data[i+2] = v;
+      img.data[i+3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+  refreshNoise();
+  setInterval(refreshNoise, 110);
+})();
+
+// ── Lightning + Thunder (Web Audio) ──────────────────────────────────────────
+(function initStorm() {
+  const lightningEl = document.getElementById('lightning');
+  let audioCtx = null;
+
+  function getAudio() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    return audioCtx;
+  }
+
+  function playThunder(delay = 0) {
+    let ctx;
+    try { ctx = getAudio(); } catch(e) { return; }
+
+    setTimeout(() => {
+      // Thunder: filtered burst of noise
+      const bufLen = ctx.sampleRate * 2.8;
+      const buf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < bufLen; i++) {
+        data[i] = (Math.random() * 2 - 1) *
+          Math.pow(Math.max(0, 1 - i / bufLen), 0.4) *
+          (0.7 + 0.3 * Math.random());
+      }
+
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+
+      // Low-pass filter for rumble
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 280;
+      lp.Q.value = 0.7;
+
+      // Gain envelope
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.38, ctx.currentTime + 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 2.8);
+
+      src.connect(lp);
+      lp.connect(gain);
+      gain.connect(ctx.destination);
+      src.start();
+      src.stop(ctx.currentTime + 2.8);
+    }, delay);
+  }
+
+  function playRain() {
+    let ctx;
+    try { ctx = getAudio(); } catch(e) { return; }
+
+    const bufLen = ctx.sampleRate * 3;
+    const buf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) data[i] = Math.random() * 2 - 1;
+
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 2200;
+
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 6000;
+
+    const gain = ctx.createGain();
+    gain.gain.value = 0.065;
+
+    src.connect(hp); hp.connect(lp); lp.connect(gain); gain.connect(ctx.destination);
+    src.start();
+    return gain;
+  }
+
+  function doLightningFlash() {
+    // multi-stroke flash
+    const strokes = [
+      { t: 0,    o: 0.55, d: 40  },
+      { t: 50,   o: 0.1,  d: 30  },
+      { t: 90,   o: 0.72, d: 60  },
+      { t: 160,  o: 0,    d: 200 },
+    ];
+    for (const s of strokes) {
+      setTimeout(() => {
+        lightningEl.style.background = `rgba(210, 225, 255, ${s.o})`;
+        setTimeout(() => { lightningEl.style.background = 'rgba(200,220,255,0)'; }, s.d);
+      }, s.t);
+    }
+    // thunder ~ 0.8–2s after flash (distance)
+    const thunderDelay = 800 + Math.random() * 1200;
+    playThunder(thunderDelay);
+  }
+
+  // Schedule random lightning
+  let rainStarted = false;
+  function scheduleNextLightning() {
+    const interval = 4000 + Math.random() * 14000;
+    setTimeout(() => {
+      doLightningFlash();
+      scheduleNextLightning();
+    }, interval);
+  }
+
+  // Start audio on first interaction (browser autoplay policy)
+  document.addEventListener('click', () => {
+    if (!rainStarted) {
+      rainStarted = true;
+      playRain();
+    }
+  }, { once: true });
+  document.addEventListener('keydown', () => {
+    if (!rainStarted) {
+      rainStarted = true;
+      playRain();
+    }
+  }, { once: true });
+
+  // Lightning starts immediately (visual only until user interacts for audio)
+  setTimeout(scheduleNextLightning, 1500 + Math.random() * 3000);
+})();
+
+// ── Morse line flicker ────────────────────────────────────────────────────────
+(function morseFlicker() {
+  const sequences = [
+    '— — · — — —',
+    '· · — · · ·',
+    '— — · · — ·',
+    '· · — · — ·',
+  ];
+  const el = document.getElementById('morse-line');
+  let i = 0;
+  setInterval(() => {
+    i = (i + 1) % sequences.length;
+    el.style.opacity = '0.2';
+    setTimeout(() => {
+      el.textContent = sequences[i];
+      el.style.opacity = '0.6';
+    }, 200);
+  }, 4800);
+})();
+</script>
+</body>
+</html>
