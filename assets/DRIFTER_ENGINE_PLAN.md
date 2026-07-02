@@ -33,7 +33,8 @@
 > - **Remaining work:**
 >   - Final visual tuning to better match the prompt atmosphere without changing the menu design.
 >   - Full browser runtime validation of effect stacking, input handling, and any hidden overlay capture.
->   - Connect menu actions to actual gameplay/run-start systems once the engine flow is implemented.
+>   - Connected menu actions to actual gameplay/run-start systems for Continue/New Game/Expedition/Settings. `menu.html` now imports `dist/ui/home-screen.js` and launches the actual `HomeScreen` runtime.
+>   - `Archives` and `Credits` still use placeholder overlays and should be wired to real UI panels later.
 >   - Preserve all original UI interaction behavior during further effect and polish work.
 >
 > **SESSION UPDATE (JULY 2, 2026 — PHASE 3 GAMEPLAY LAYER FOUND COMPLETE, NOT PREVIOUSLY DOCUMENTED):**
