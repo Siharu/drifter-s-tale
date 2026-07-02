@@ -1,10 +1,8 @@
-import type { Zone, Vector2 } from '../types.js';
+import type { Zone } from '../types.js';
 import { WrongnessState } from '../types.js';
-import * as THREE from 'three';
 import { WorldGenerator } from '../worldgen.js';
 import { GameplayEngine } from '../gameplay/index.js';
-import { IsometricRenderer } from '../render/IsometricRenderer.js';
-import { SkySystem } from '../render/SkySystem.js';
+import { GameRuntime } from './GameRuntime.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -525,16 +523,6 @@ function createNoiseCanvas(opacity: number): HTMLCanvasElement {
   return canvas;
 }
 
-interface PlaySession {
-  canvas: HTMLCanvasElement;
-  renderer: IsometricRenderer;
-  sky: SkySystem;
-  drifterMesh: THREE.Mesh;
-  animationFrame: number | null;
-  lastTimestamp: number;
-  cleanup: () => void;
-}
-
 // ─── HomeScreen class ─────────────────────────────────────────────────────────
 
 export class HomeScreen {
@@ -546,9 +534,7 @@ export class HomeScreen {
   private backgroundFolder: MenuBackgroundFolder;
   private statusMessage = 'Relay node connection established. Standing by.';
   private menuIndex = 0;
-  private playSession: PlaySession | null = null;
-  private inputVector: Vector2 = { x: 0, y: 0 };
-  private readonly heldKeys = new Set<string>();
+  private gameRuntime: GameRuntime | null = null;
 
   // Wrongness for menu is always GREY (6 months post-collapse, first zone is Finland)
   // Can be overridden if a zone is active
@@ -578,6 +564,15 @@ export class HomeScreen {
 
   public showMenu(): void {
     this.setMode('menu');
+    // If the legacy static menu panel exists (menu.html), show it and hide the app container.
+    try {
+      const panel = document.getElementById('panel');
+      const appEl = document.getElementById('app');
+      if (panel) panel.style.display = 'block';
+      if (appEl) appEl.style.display = 'none';
+    } catch (e) {
+      // ignore if DOM differs in other contexts
+    }
   }
 
   public run(): void {
@@ -673,13 +668,15 @@ export class HomeScreen {
           zIndex: '0',
           pointerEvents: 'none',
         });
-        if (this.playSession) {
-          this.playSession.canvas.style.width = '100%';
-          this.playSession.canvas.style.height = '100%';
-          this.playSession.canvas.style.display = 'block';
-          this.playSession.canvas.style.objectFit = 'cover';
-          this.playSession.canvas.style.pointerEvents = 'none';
-          canvasWrap.appendChild(this.playSession.canvas);
+        if (this.gameRuntime) {
+          const canvas = this.gameRuntime.canvas;
+          canvas.style.width = '100%';
+          canvas.style.height = '100%';
+          canvas.style.display = 'block';
+          canvas.style.objectFit = 'cover';
+          canvas.style.pointerEvents = 'none';
+          canvasWrap.appendChild(canvas);
+          this.gameRuntime.handleResize();
         }
         playSurface.appendChild(canvasWrap);
 
@@ -837,149 +834,18 @@ export class HomeScreen {
 
   private createPlaySession(): void {
     this.disposePlaySession();
-
-    const canvas = document.createElement('canvas');
-    canvas.style.width = '100%';
-    canvas.style.height = '100%';
-    canvas.style.display = 'block';
-    canvas.style.imageRendering = 'pixelated';
-
-    const renderer = new IsometricRenderer({
-      canvas,
-      viewSize: 14,
-      cameraDistance: 30,
-      pixelPipeline: { internalWidth: 384, internalHeight: 216 },
-    });
-
-    const sky = new SkySystem({ textureWidth: 512, textureHeight: 512, zoneSeed: this.currentZone?.seed ?? 4242 });
-    sky.init();
-    renderer.attachSky(sky);
-
-    const zone = this.currentZone;
-    if (zone) {
-      sky.update(0, {
-        timeOfDay: zone.timeOfDay,
-        weatherState: zone.weatherState,
-        fogIntensity: zone.fogIntensity,
-        wrongnessState: zone.wrongnessState,
-        zoneSeed: zone.seed,
-      });
-      renderer.syncSky();
-    }
-
-    const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(24, 24, 24, 24),
-      new THREE.MeshStandardMaterial({ color: 0x11151d, roughness: 1, metalness: 0.05 })
-    );
-    ground.rotation.x = -Math.PI / 2;
-    ground.receiveShadow = true;
-    renderer.scene.add(ground);
-
-    const grid = new THREE.GridHelper(24, 24, 0x2f3948, 0x161c24);
-    grid.position.y = 0.01;
-    renderer.scene.add(grid);
-
-    const maxDimension = Math.max(zone?.size.width ?? 96, zone?.size.height ?? 96, 24);
-
-    const drifterMesh = new THREE.Mesh(
-      new THREE.BoxGeometry(0.45, 0.9, 0.45),
-      new THREE.MeshStandardMaterial({ color: 0x8fd1ff, emissive: 0x17344d, emissiveIntensity: 0.4 })
-    );
-    drifterMesh.position.set(0, 0.45, 0);
-    renderer.scene.add(drifterMesh);
-
-    // Use the engine's wired buildingFactory (SVGRasterizer → TextureCache → SVGBuildingFactory)
-    // so buildings get real procedural SVG facades and their textures are tracked for zone eviction.
-    for (const building of zone?.buildings ?? []) {
-      const diorama = this.engine!.buildingFactory.build(building, zone?.id as import('../types.js').ZoneID);
-      const x = (building.position.x / maxDimension) * 12 - 6;
-      const z = (building.position.y / maxDimension) * 12 - 6;
-      diorama.group.position.set(x, 0, z);
-      renderer.scene.add(diorama.group);
-    }
-
-    // Seed the streamer at the starting grid cell (0,0 for single-zone runs)
-    this.engine!.zoneStreamer.moveTo({ col: 0, row: 0 });
-
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'w', 'a', 's', 'd'].includes(event.key)) {
-        event.preventDefault();
-      }
-      this.heldKeys.add(event.key.toLowerCase());
-      this.syncInputVector();
-    };
-
-    const onKeyUp = (event: KeyboardEvent): void => {
-      this.heldKeys.delete(event.key.toLowerCase());
-      this.syncInputVector();
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('keyup', onKeyUp);
-
-    const animate = (timestamp: number): void => {
-      const session = this.playSession;
-      if (!session) return;
-      const deltaSeconds = Math.min(0.05, (timestamp - session.lastTimestamp) / 1000);
-      session.lastTimestamp = timestamp;
-
-      if (this.engine && this.currentZone) {
-        this.engine.update(deltaSeconds, this.inputVector, []);
-        if (this.engine.drifter.position) {
-          const sceneX = (this.engine.drifter.position.x / maxDimension) * 12 - 6;
-          const sceneZ = (this.engine.drifter.position.y / maxDimension) * 12 - 6;
-          drifterMesh.position.set(sceneX, 0.45, sceneZ);
-        }
-      }
-
-      sky.update(deltaSeconds, {
-        timeOfDay: zone?.timeOfDay ?? 12,
-        weatherState: zone?.weatherState ?? ('' as unknown as import('../types.js').WeatherType),
-        fogIntensity: zone?.fogIntensity ?? 0.2,
-        wrongnessState: zone?.wrongnessState ?? WrongnessState.GREY,
-        zoneSeed: zone?.seed ?? 4242,
-      });
-      renderer.syncSky(deltaSeconds);
-      renderer.render();
-
-      session.animationFrame = window.requestAnimationFrame(animate);
-    };
-
-    this.playSession = {
-      canvas,
-      renderer,
-      sky,
-      drifterMesh,
-      animationFrame: window.requestAnimationFrame(animate),
-      lastTimestamp: performance.now(),
-      cleanup: () => {
-        window.removeEventListener('keydown', onKeyDown);
-        window.removeEventListener('keyup', onKeyUp);
-        if (this.playSession?.animationFrame !== null && this.playSession?.animationFrame !== undefined) {
-          window.cancelAnimationFrame(this.playSession.animationFrame);
-        }
-      },
-    };
+    if (!this.engine || !this.currentZone) return;
+    this.gameRuntime = new GameRuntime(this.engine, this.currentZone);
+    this.gameRuntime.start();
   }
 
   private disposePlaySession(): void {
-    if (!this.playSession) return;
-    this.playSession.cleanup();
-    this.playSession.renderer.dispose();
-    this.playSession = null;
+    if (!this.gameRuntime) return;
+    this.gameRuntime.stop();
+    this.gameRuntime = null;
   }
 
-  private syncInputVector(): void {
-    let x = 0;
-    let y = 0;
-
-    if (this.heldKeys.has('arrowright') || this.heldKeys.has('d')) x += 1;
-    if (this.heldKeys.has('arrowleft') || this.heldKeys.has('a')) x -= 1;
-    if (this.heldKeys.has('arrowdown') || this.heldKeys.has('s')) y += 1;
-    if (this.heldKeys.has('arrowup') || this.heldKeys.has('w')) y -= 1;
-
-    this.inputVector = { x, y };
-  }
+  // No direct input handling in HomeScreen; GameRuntime owns gameplay input.
 
   // ── Title (left pane, bottom-anchored) ──────────────────────────────────────
   private renderTitle(): HTMLElement {

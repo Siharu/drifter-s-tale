@@ -7,9 +7,7 @@ export declare class HomeScreen {
     private backgroundFolder;
     private statusMessage;
     private menuIndex;
-    private playSession;
-    private inputVector;
-    private readonly heldKeys;
+    private gameRuntime;
     private wrongnessState;
     constructor(rootId?: string);
     launchStory(): void;
@@ -22,7 +20,6 @@ export declare class HomeScreen {
     private renderBackground;
     private createPlaySession;
     private disposePlaySession;
-    private syncInputVector;
     private renderTitle;
     private renderWrongnessIndicator;
     private renderStationStatusInline;
